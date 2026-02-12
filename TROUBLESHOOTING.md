@@ -1,6 +1,6 @@
 # Cobblemon Pack Generator - Troubleshooting Guide
 
-## 🐛 Common Issues and Fixes
+## Common Issues and Fixes
 
 ### Issue 1: Practice Dummy / Missing Texture
 
@@ -11,14 +11,14 @@
 #### Fix 1: Texture Path Issue (MOST COMMON)
 The resolver JSON needs the correct texture path format.
 
-**✅ Correct Format** (what the updated script uses):
+** Correct Format** (what the updated script uses):
 ```json
 {
   "texture": "cobblemon:pokemon/pokemonname/pokemonname"
 }
 ```
 
-**❌ Wrong Format** (old versions):
+** Wrong Format** (old versions):
 ```json
 {
   "texture": "cobblemon:textures/pokemon/pokemonname/pokemonname.png"
@@ -62,10 +62,10 @@ All names should be lowercase!
 
 **Example**:
 ```bash
-# ❌ Wrong
+#  Wrong
 --name FlAmEbIrD
 
-# ✅ Correct  
+#  Correct  
 --name flamebird
 ```
 
@@ -134,14 +134,14 @@ python cobblemon_pack_generator.py --name Leafgolem --number 1003
 ```
 
 #### What Gets Merged:
-- ✅ Language file (`en_us.json`) - entries combined
-- ✅ Species files - separate file per Pokémon
-- ✅ Models/textures - separate folders per Pokémon
-- ✅ pack.mcmeta - kept from first run
+-  Language file (`en_us.json`) - entries combined
+-  Species files - separate file per Pokémon
+-  Models/textures - separate folders per Pokémon
+-  pack.mcmeta - kept from first run
 
 ---
 
-## 🔍 Advanced Debugging
+## Advanced Debugging
 
 ### Check Your Pack Structure
 
@@ -200,7 +200,7 @@ If it works in creative but not survival, it's likely a spawn configuration issu
 
 ---
 
-## 🎮 Installation Checklist
+## Installation Checklist
 
 Use this checklist to ensure everything is set up correctly:
 
@@ -235,7 +235,7 @@ Use this checklist to ensure everything is set up correctly:
 
 ---
 
-## 💡 Quick Fixes Summary
+## Quick Fixes Summary
 
 | Problem | Quick Fix |
 |---------|-----------|
@@ -250,7 +250,7 @@ Use this checklist to ensure everything is set up correctly:
 
 ---
 
-## 🆘 Still Having Issues?
+## Still Having Issues?
 
 1. **Re-download the script** - Make sure you have the latest version
 2. **Check Cobblemon version** - Make sure mod is up to date
