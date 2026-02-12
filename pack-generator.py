@@ -58,7 +58,7 @@ class CobblemonPackGenerator:
 
     def setup_directories(self, pokemon_name: str):
         """Create directory structure for both packs"""
-        print(f"\n📁 Setting up directory structure for {pokemon_name}...")
+        print(f"\n Setting up directory structure for {pokemon_name}...")
 
         pokemon_lower = pokemon_name.lower()
 
@@ -94,7 +94,7 @@ class CobblemonPackGenerator:
         }
 
         if not self.base_dir.exists():
-            print(f"⚠️  Base directory not found: {self.base_dir}")
+            print(f"  Base directory not found: {self.base_dir}")
             return files
 
         for file in self.base_dir.iterdir():
@@ -335,7 +335,7 @@ class CobblemonPackGenerator:
 
     def organize_files(self, pokemon_name: str, files: Dict[str, List[Path]]):
         """Organize files into resource pack"""
-        print(f"\n📦 Organizing files for {pokemon_name}...")
+        print(f"\n Organizing files for {pokemon_name}...")
 
         pokemon_lower = pokemon_name.lower()
 
@@ -368,7 +368,7 @@ class CobblemonPackGenerator:
                 shutil.copy2(texture_file, dest_file)
                 print(f"  ✓ Texture: {texture_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
 
-        print("✅ Files organized!")
+        print(" Files organized!")
 
     def generate_pack_files(self, pokemon_name: str, config: Dict):
         """Generate all pack configuration files"""
@@ -383,7 +383,7 @@ class CobblemonPackGenerator:
                 json.dump(self.create_pack_mcmeta('resource'), f, indent=2)
             print(f"  ✓ Resource pack.mcmeta created (format {self.RESOURCE_PACK_FORMAT})")
         else:
-            print(f"  ℹ️  Resource pack.mcmeta already exists (keeping existing)")
+            print(f"   Resource pack.mcmeta already exists (keeping existing)")
 
         # Behavior pack.mcmeta (create if doesn't exist)
         behavior_mcmeta = self.behavior_pack_dir / "pack.mcmeta"
@@ -392,7 +392,7 @@ class CobblemonPackGenerator:
                 json.dump(self.create_pack_mcmeta('behavior'), f, indent=2)
             print(f"  ✓ Behavior pack.mcmeta created (format {self.DATA_PACK_FORMAT})")
         else:
-            print(f"  ℹ️  Behavior pack.mcmeta already exists (keeping existing)")
+            print(f"  Behavior pack.mcmeta already exists (keeping existing)")
 
         # Species definition
         species_file = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom" / f"{pokemon_lower}.json"
@@ -441,11 +441,11 @@ class CobblemonPackGenerator:
                 json.dump(new_lang_data, f, indent=2)
             print(f"  ✓ Language file created")
 
-        print("✅ Configuration files generated!")
+        print(" Configuration files generated!")
 
     def cleanup_source_files(self, files: Dict[str, List[Path]]):
         """Remove source files after copying (NEVER deletes .py files or files outside base_dir)"""
-        print("\n🧹 Cleaning up source files...")
+        print("\n Cleaning up source files...")
 
         files_to_remove = []
         for file_list in files.values():
@@ -457,32 +457,27 @@ class CobblemonPackGenerator:
             # 2. Files outside the base directory
             # 3. The script itself
             if file.suffix == '.py':
-                print(f"  ⚠️  Skipped (Python file): {file.name}")
+                print(f"   Skipped (Python file): {file.name}")
                 continue
 
             if not str(file).startswith(str(self.base_dir)):
-                print(f"  ⚠️  Skipped (outside base directory): {file.name}")
+                print(f"   Skipped (outside base directory): {file.name}")
                 continue
 
             if file.exists():
                 file.unlink()
                 print(f"  ✓ Removed: {file.name}")
 
-        print("✅ Cleanup complete!")
+        print(" Cleanup complete!")
 
     def generate_pokemon(self, pokemon_name: str, config: Dict, cleanup: bool = True):
         """Main function to generate Pokémon packs"""
         print(f"\n{'=' * 70}")
-        print(f"🎮 Cobblemon Pack Generator - Creating {pokemon_name.upper()}")
+        print(f" Cobblemon Pack Generator - Creating {pokemon_name.upper()}")
         print(f"{'=' * 70}")
 
-        # Important warning
-        print(f"\n⚠️  IMPORTANT: Keep this Python script OUTSIDE of:")
-        print(f"   {self.base_dir}")
-        print(f"   (Only put your .geo.json, .animation.json, .png files there!)")
-
         # Find files
-        print(f"\n🔍 Scanning {self.base_dir} for files...")
+        print(f"\n Scanning {self.base_dir} for files...")
         files = self.find_files_in_base_dir()
 
         print(f"\nFound:")
@@ -491,7 +486,7 @@ class CobblemonPackGenerator:
         print(f"  • {len(files['textures'])} texture file(s)")
 
         if not any(files[key] for key in ['animations', 'models', 'textures']):
-            print("\n⚠️  No valid files found! Please add files to:")
+            print("\n  No valid files found! Please add files to:")
             print(f"    {self.base_dir}")
             return False
 
@@ -509,23 +504,23 @@ class CobblemonPackGenerator:
             self.cleanup_source_files(files)
 
         print(f"\n{'=' * 70}")
-        print("✨ PACK GENERATION COMPLETE! ✨")
+        print(" PACK GENERATION COMPLETE! ")
         print(f"{'=' * 70}")
-        print(f"\n📍 Your packs are at:")
+        print(f"\n Your packs are at:")
         print(f"   Resource Pack: {self.resource_pack_dir}")
         print(f"   Behavior Pack: {self.behavior_pack_dir}")
-        print(f"\n📝 Pack Formats:")
+        print(f"\n Pack Formats:")
         print(f"   Resource: {self.RESOURCE_PACK_FORMAT} | Behavior: {self.DATA_PACK_FORMAT}")
-        print(f"   ⚠️  Can only combine into one folder if formats match!")
-        print(f"\n🔄 Adding More Pokémon:")
+        print(f"     Can only combine into one folder if formats match!")
+        print(f"\n Adding More Pokémon:")
         print(f"   Just run the script again with new files and a new name!")
         print(f"   It will ADD to the existing packs (won't overwrite)")
-        print(f"\n💡 Installation:")
+        print(f"\n Installation:")
         print(f"   1. Copy resource_pack/ to .minecraft/resourcepacks/")
         print(f"   2. Copy behavior_pack/ to .minecraft/saves/YourWorld/datapacks/")
         print(f"   3. In-game: Enable resource pack, /reload")
         print(f"   4. Test: /pokespawn {pokemon_name.lower()}")
-        print(f"\n🐛 Texture Issue?")
+        print(f"\n Texture Issue?")
         print(f"   If showing practice dummy, check:")
         print(f"   - Texture is .png format")
         print(f"   - Model identifier matches Pokémon name")
@@ -648,4 +643,5 @@ Examples:
 
 
 if __name__ == "__main__":
+
     main()
