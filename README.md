@@ -123,7 +123,7 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 --desc2 "Its flames grow hotter when angered."
 ```
 
-## 🎮 Installation
+## Installation
 
 Since packs are **separate**, install both:
 
