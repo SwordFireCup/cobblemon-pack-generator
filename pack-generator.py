@@ -696,6 +696,263 @@ class CobblemonPackGenerator:
         print(f"   Behavior: {self.behavior_pack_dir}")
         print(f"{'='*70}\n")
     
+    def show_current_pokemon(self):
+        """Display all Pokémon currently in the packs"""
+        print(f"\n{'='*70}")
+        print("📋 CURRENT POKÉMON IN PACKS")
+        print(f"{'='*70}\n")
+        
+        # Check if packs exist
+        species_dir = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom"
+        
+        if not species_dir.exists():
+            print("❌ No packs found!")
+            print(f"   Location checked: {species_dir}")
+            print("\n💡 Generate your first Pokémon to create the packs!")
+            return
+        
+        # Find all species files
+        species_files = list(species_dir.glob("*.json"))
+        
+        if not species_files:
+            print("❌ No Pokémon found in packs!")
+            print(f"   Location: {species_dir}")
+            return
+        
+        print(f"Found {len(species_files)} Pokémon:\n")
+        
+        # Parse and display each Pokémon
+        pokemon_list = []
+        for species_file in sorted(species_files):
+            try:
+                with open(species_file, 'r') as f:
+                    data = json.load(f)
+                
+                name = data.get('name', species_file.stem).capitalize()
+                pokedex_num = data.get('nationalPokedexNumber', '???')
+                primary_type = data.get('primaryType', '???').upper()
+                secondary_type = data.get('secondaryType', '')
+                
+                # Get stats
+                stats = data.get('baseStats', {})
+                hp = stats.get('hp', 0)
+                atk = stats.get('attack', 0)
+                defe = stats.get('defence', 0)
+                spatk = stats.get('special_attack', 0)
+                spdef = stats.get('special_defence', 0)
+                speed = stats.get('speed', 0)
+                total = hp + atk + defe + spatk + spdef + speed
+                
+                # Check if legendary
+                labels = data.get('labels', [])
+                is_legendary = 'legendary' in labels
+                
+                # Get catch rate
+                catch_rate = data.get('catchRate', 45)
+                
+                pokemon_list.append({
+                    'name': name,
+                    'number': pokedex_num,
+                    'primary_type': primary_type,
+                    'secondary_type': secondary_type,
+                    'total': total,
+                    'hp': hp,
+                    'atk': atk,
+                    'def': defe,
+                    'spatk': spatk,
+                    'spdef': spdef,
+                    'speed': speed,
+                    'legendary': is_legendary,
+                    'catch_rate': catch_rate
+                })
+                
+            except Exception as e:
+                print(f"⚠️  Error reading {species_file.name}: {e}")
+        
+        # Display in table format
+        print(f"{'#':<6} {'Name':<15} {'Type':<20} {'BST':<6} {'Legendary':<10} {'Catch':<6}")
+        print("-" * 70)
+        
+        for p in sorted(pokemon_list, key=lambda x: x['number']):
+            type_str = p['primary_type']
+            if p['secondary_type']:
+                type_str += f"/{p['secondary_type'].upper()}"
+            
+            legendary_mark = "⭐ YES" if p['legendary'] else "No"
+            
+            print(f"#{p['number']:<5} {p['name']:<15} {type_str:<20} {p['total']:<6} {legendary_mark:<10} {p['catch_rate']:<6}")
+        
+        # Summary stats
+        print("\n" + "="*70)
+        print(f"📊 SUMMARY:")
+        print(f"   Total Pokémon: {len(pokemon_list)}")
+        legendary_count = sum(1 for p in pokemon_list if p['legendary'])
+        print(f"   Legendary: {legendary_count}")
+        print(f"   Regular: {len(pokemon_list) - legendary_count}")
+        
+        # Average BST
+        avg_bst = sum(p['total'] for p in pokemon_list) // len(pokemon_list) if pokemon_list else 0
+        print(f"   Average BST: {avg_bst}")
+        
+        # Type distribution
+        type_counts = {}
+        for p in pokemon_list:
+            primary = p['primary_type']
+            type_counts[primary] = type_counts.get(primary, 0) + 1
+            if p['secondary_type']:
+                secondary = p['secondary_type'].upper()
+                type_counts[secondary] = type_counts.get(secondary, 0) + 1
+        
+        print(f"\n   Type Distribution:")
+        for ptype, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
+            print(f"      {ptype}: {count}")
+        
+        print(f"\n{'='*70}")
+        print(f"📁 Pack Locations:")
+        print(f"   Resource: {self.resource_pack_dir}")
+        print(f"   Behavior: {self.behavior_pack_dir}")
+        print(f"{'='*70}\n")
+    
+    def edit_pokemon(self, pokemon_name: str, args):
+        """Edit an existing Pokémon's stats and properties"""
+        print(f"\n{'='*70}")
+        print(f"✏️  EDITING POKÉMON: {pokemon_name.upper()}")
+        print(f"{'='*70}\n")
+        
+        pokemon_lower = pokemon_name.lower()
+        species_file = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom" / f"{pokemon_lower}.json"
+        
+        # Check if Pokémon exists
+        if not species_file.exists():
+            print(f"❌ Pokémon '{pokemon_name}' not found!")
+            print(f"   Looked for: {species_file}")
+            print(f"\n💡 Use --show-current-pokemon to see all Pokémon")
+            return
+        
+        # Load existing data
+        try:
+            with open(species_file, 'r') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"❌ Error reading {pokemon_name}: {e}")
+            return
+        
+        print(f"📖 Current Stats for {pokemon_name.capitalize()}:")
+        current_stats = data.get('baseStats', {})
+        current_hp = current_stats.get('hp', 0)
+        current_atk = current_stats.get('attack', 0)
+        current_def = current_stats.get('defence', 0)
+        current_spatk = current_stats.get('special_attack', 0)
+        current_spdef = current_stats.get('special_defence', 0)
+        current_speed = current_stats.get('speed', 0)
+        current_total = current_hp + current_atk + current_def + current_spatk + current_spdef + current_speed
+        
+        print(f"   HP: {current_hp}")
+        print(f"   Attack: {current_atk}")
+        print(f"   Defence: {current_def}")
+        print(f"   Sp. Attack: {current_spatk}")
+        print(f"   Sp. Defence: {current_spdef}")
+        print(f"   Speed: {current_speed}")
+        print(f"   TOTAL BST: {current_total}")
+        print(f"   Type: {data.get('primaryType', 'normal').upper()}/{data.get('secondaryType', '').upper() if data.get('secondaryType') else 'None'}")
+        print(f"   Catch Rate: {data.get('catchRate', 45)}")
+        print(f"   Legendary: {'⭐ YES' if 'legendary' in data.get('labels', []) else 'No'}")
+        
+        # Track what was changed
+        changes_made = []
+        
+        # Update stats if provided
+        if args.hp is not None and args.hp != 50:  # 50 is default
+            data['baseStats']['hp'] = args.hp
+            changes_made.append(f"HP: {current_hp} → {args.hp}")
+        
+        if args.attack is not None and args.attack != 50:
+            data['baseStats']['attack'] = args.attack
+            changes_made.append(f"Attack: {current_atk} → {args.attack}")
+        
+        if args.defence is not None and args.defence != 50:
+            data['baseStats']['defence'] = args.defence
+            changes_made.append(f"Defence: {current_def} → {args.defence}")
+        
+        if args.special_attack is not None and args.special_attack != 50:
+            data['baseStats']['special_attack'] = args.special_attack
+            changes_made.append(f"Sp. Attack: {current_spatk} → {args.special_attack}")
+        
+        if args.special_defence is not None and args.special_defence != 50:
+            data['baseStats']['special_defence'] = args.special_defence
+            changes_made.append(f"Sp. Defence: {current_spdef} → {args.special_defence}")
+        
+        if args.speed is not None and args.speed != 50:
+            data['baseStats']['speed'] = args.speed
+            changes_made.append(f"Speed: {current_speed} → {args.speed}")
+        
+        # Update types if provided
+        if args.primary_type and args.primary_type != 'normal':
+            old_type = data.get('primaryType', 'normal')
+            data['primaryType'] = args.primary_type
+            changes_made.append(f"Primary Type: {old_type} → {args.primary_type}")
+        
+        if args.secondary_type:
+            old_type = data.get('secondaryType', 'None')
+            data['secondaryType'] = args.secondary_type
+            changes_made.append(f"Secondary Type: {old_type} → {args.secondary_type}")
+        
+        # Update rarity
+        if args.rarity and args.rarity != 'common':
+            # Update spawn file
+            spawn_file = self.behavior_pack_dir / "data" / "cobblemon" / "spawn_pool_world" / f"{pokemon_lower}.json"
+            if spawn_file.exists():
+                try:
+                    with open(spawn_file, 'r') as f:
+                        spawn_data = json.load(f)
+                    old_rarity = spawn_data['spawns'][0].get('bucket', 'common')
+                    spawn_data['spawns'][0]['bucket'] = args.rarity
+                    with open(spawn_file, 'w') as f:
+                        json.dump(spawn_data, f, indent=2)
+                    changes_made.append(f"Rarity: {old_rarity} → {args.rarity}")
+                except Exception as e:
+                    print(f"⚠️  Could not update spawn rarity: {e}")
+        
+        # Update legendary status
+        if args.legendary:
+            if 'legendary' not in data.get('labels', []):
+                data['labels'].append('legendary')
+                data['catchRate'] = 3
+                data['baseExperienceYield'] = 290
+                data['baseFriendship'] = 0
+                changes_made.append("Made legendary (catchRate=3, baseExp=290)")
+        
+        # Save if changes were made
+        if changes_made:
+            print(f"\n✏️  Changes to apply:")
+            for change in changes_made:
+                print(f"   • {change}")
+            
+            # Calculate new BST
+            new_stats = data.get('baseStats', {})
+            new_total = (new_stats.get('hp', 0) + new_stats.get('attack', 0) + 
+                        new_stats.get('defence', 0) + new_stats.get('special_attack', 0) + 
+                        new_stats.get('special_defence', 0) + new_stats.get('speed', 0))
+            
+            if new_total != current_total:
+                print(f"\n   📊 BST Change: {current_total} → {new_total}")
+            
+            # Save the file
+            try:
+                with open(species_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+                print(f"\n✅ Successfully updated {pokemon_name.capitalize()}!")
+                print(f"   File: {species_file}")
+            except Exception as e:
+                print(f"\n❌ Error saving changes: {e}")
+        else:
+            print(f"\n⚠️  No changes specified!")
+            print(f"   Use --hp, --attack, --defence, etc. to make changes")
+            print(f"\n💡 Example:")
+            print(f"   python script.py --edit {pokemon_name} --hp 80 --attack 70 --rarity rare")
+        
+        print(f"\n{'='*70}\n")
+    
     def generate_pokemon(self, pokemon_name: str, config: Dict, cleanup: bool = True):
         """Main function to generate Pokémon packs"""
         print(f"\n{'='*70}")
@@ -843,6 +1100,7 @@ Examples:
     parser.add_argument('--downloads', type=str, help='Custom Downloads path')
     parser.add_argument('--no-cleanup', action='store_true', help='Keep source files')
     parser.add_argument('--show-current-pokemon', action='store_true', help='Show all Pokémon currently in the packs')
+    parser.add_argument('--edit', type=str, help='Edit an existing Pokémon (use Pokémon name)')
     
     args = parser.parse_args()
     
@@ -852,6 +1110,11 @@ Examples:
     # Handle --show-current-pokemon command
     if args.show_current_pokemon:
         generator.show_current_pokemon()
+        return
+    
+    # Handle --edit command
+    if args.edit:
+        generator.edit_pokemon(args.edit, args)
         return
     
     # Validate required arguments when creating a Pokémon
