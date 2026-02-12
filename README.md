@@ -116,6 +116,7 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 --rarity rare                           # common|uncommon|rare|ultra-rare
 --spawn-level "10-40"                   # Level range
 --spawn-biomes "#minecraft:is_forest"  # Biome tags (comma-separated)
+--legendary
 ```
 
 ### Descriptions
@@ -267,7 +268,7 @@ File → New → Bedrock Entity
 - [Cobblemon Discord](https://discord.gg/cobblemon)
 
 ---
-
+Legendary sets up the rarity if you forgot to set it.
 Happy Pokémon creating!
 
 README SECTION 2:
@@ -283,4 +284,5 @@ Importing your packs in more detail
 9. With pokemon-name being your pokemon name, type /pokespawn pokemon-name or /pokegive pokemon-name
 10. Pokespawn will spawn your pokemon while pokegive will put that pokemon in your inventory.
 11. You can also find it naturally.
+
 Happy testing!
