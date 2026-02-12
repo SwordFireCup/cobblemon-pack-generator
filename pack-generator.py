@@ -141,10 +141,15 @@ class CobblemonPackGenerator:
         primary_type = config.get('primary_type', 'normal')
         secondary_type = config.get('secondary_type')
         
+        # Get labels - add legendary if flagged
+        labels = config.get('labels', ['custom'])
+        if config.get('legendary') and 'legendary' not in labels:
+            labels.append('legendary')
+        
         return {
             "implemented": True,
             "name": pokemon_lower,
-            "labels": ["custom"],
+            "labels": labels,
             "pokedex": [
                 f"cobblemon.species.{pokemon_lower}.desc1",
                 f"cobblemon.species.{pokemon_lower}.desc2"
@@ -673,6 +678,7 @@ Examples:
     parser.add_argument('--can-fly', action='store_true', help='Pokémon can fly')
     parser.add_argument('--can-swim', action='store_true', help='Pokémon can swim')
     parser.add_argument('--breathe-underwater', action='store_true', help='Can breathe underwater')
+    parser.add_argument('--no-look', action='store_true', help='Pokémon cannot look around (canLook=false)')
     
     # Spawn configuration
     parser.add_argument('--rarity', type=str, default='common', choices=['common', 'uncommon', 'rare', 'ultra-rare'], help='Spawn rarity')
@@ -682,6 +688,9 @@ Examples:
     # Descriptions
     parser.add_argument('--desc1', type=str, help='First Pokédex entry')
     parser.add_argument('--desc2', type=str, help='Second Pokédex entry')
+    
+    # Legendary/Mythical
+    parser.add_argument('--legendary', action='store_true', help='Make this a legendary Pokémon (sets catchRate=3, baseExp=290, adds legendary label)')
     
     # Model customization
     parser.add_argument('--head-bone', type=str, default='head', help='Head bone name (use "none" if model has no head)')
@@ -717,7 +726,26 @@ Examples:
         'desc1': args.desc1,
         'desc2': args.desc2,
         'head_bone': args.head_bone,
+        'legendary': args.legendary,
     }
+    
+    # Apply legendary settings if --legendary flag is used
+    if args.legendary:
+        config['catch_rate'] = 3           # Hard to catch (like Mewtwo)
+        config['base_exp'] = 290           # High experience yield
+        config['labels'] = ['custom', 'legendary']
+        config['friendship'] = 0           # Starts unfriendly
+        config['spawn_weight'] = 0.05      # Extremely rare spawn
+        
+        # Auto-set ultra-rare if not specified
+        if args.rarity == 'common':  # Default value
+            config['rarity'] = 'ultra-rare'
+        
+        print("\n⭐ Legendary mode activated!")
+        print("   - Catch rate: 3 (very hard)")
+        print("   - Base EXP: 290 (legendary level)")
+        print("   - Spawn weight: 0.05 (extremely rare)")
+        print("   - Labels: custom, legendary")
     
     # Create generator
     generator = CobblemonPackGenerator(downloads_path=args.downloads)
