@@ -99,6 +99,7 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 ```bash
 --height 17      # In decimeters (1.7m = 17)
 --weight 905     # In hectograms (90.5kg = 905)
+--head-bone none # Meaning No head bone, exclude if you have a head bone
 ```
 
 ### Movement & Behavior
