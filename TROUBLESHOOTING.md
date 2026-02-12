@@ -307,3 +307,4 @@ Should output all files - check that paths match the structure above!
 ---
 
 **Remember**: Always run `/reload` after making changes to packs!
+This pack is made to be usefull and fun for everybody, but bugs are common, commitable, and really annoying. Don't hesitate to look for information on this page or on the README.md because everybody uses a pack creator wrong somtime in their life.
