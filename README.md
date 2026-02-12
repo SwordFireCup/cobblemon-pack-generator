@@ -1,5 +1,3 @@
-# cobblemon-pack-generator
-Generates Cobblemon packs without all that fuss of the folders!
 # Cobblemon Pack Generator for Minecraft 1.21.1
 
 Automates creation of custom Pokémon for Cobblemon with **full customization** support! Creates **separate** resource and behavior packs for easier distribution.
