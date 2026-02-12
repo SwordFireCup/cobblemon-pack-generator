@@ -1,6 +1,6 @@
 # Cobblemon Moves, Abilities & Types Reference Guide
 
-## 📋 Table of Contents
+## Table of Contents
 1. [Common Moves by Level](#common-moves-by-level)
 2. [TM Moves](#tm-moves)
 3. [Egg Moves](#egg-moves)
@@ -11,7 +11,7 @@
 
 ---
 
-## 🎯 Common Moves by Level
+##  Common Moves by Level
 
 ### Early Game (Levels 1-15)
 ```
@@ -68,7 +68,7 @@
 
 ---
 
-## 💿 TM Moves (Common)
+##  TM Moves (Common)
 
 ### Status & Support
 ```
@@ -120,7 +120,7 @@ tm:sludge_bomb    # Poison
 
 ---
 
-## 🥚 Egg Moves (Breeding)
+## Egg Moves (Breeding)
 
 ### Popular Egg Moves
 ```
@@ -147,7 +147,7 @@ egg:haze          # Ice (remove stat changes)
 
 ---
 
-## 🎓 Tutor Moves
+## Tutor Moves
 
 ### Common Tutor Moves
 ```
@@ -174,7 +174,7 @@ tutor:superpower      # Fighting (lower stats)
 
 ---
 
-## 💪 Common Abilities
+## Common Abilities
 
 ### Offensive Abilities
 ```
@@ -261,7 +261,7 @@ h:dry_skin        # Heal in rain, hurt in sun
 
 ---
 
-## 🎨 Types Reference
+## Types Reference
 
 ### All 18 Types
 ```
@@ -301,7 +301,7 @@ dark      fairy
 
 ---
 
-## 📝 Move Format Examples
+## Move Format Examples
 
 ### Complete Move List Format
 ```python
@@ -332,7 +332,7 @@ dark      fairy
 
 ---
 
-## 🎯 Ability Format Examples
+## Ability Format Examples
 
 ### Single Ability
 ```python
@@ -356,7 +356,7 @@ dark      fairy
 
 ---
 
-## 💡 Recommended Movesets by Archetype
+## Recommended Movesets by Archetype
 
 ### Physical Sweeper
 ```
@@ -390,7 +390,7 @@ dark      fairy
 
 ---
 
-## 🔥 Starter Pokémon Examples
+## Starter Pokémon Examples
 
 ### Fire Starter
 ```bash
@@ -428,7 +428,7 @@ python cobblemon_pack_generator.py \
 
 ---
 
-## 📊 Stat Distribution Guide
+## Stat Distribution Guide
 
 ### Total Stat Guidelines
 - **Early Evolution**: 300-380
@@ -470,7 +470,7 @@ Total: 490
 
 ---
 
-## 🎯 Quick Reference Cheat Sheet
+## Quick Reference Cheat Sheet
 
 ### Most Common Starter Moves
 ```
@@ -507,7 +507,7 @@ egg:counter, egg:mirror_coat
 
 ---
 
-**💡 Pro Tip**: Copy the move/ability strings directly into your command line arguments!
+**Pro Tip**: Copy the move/ability strings directly into your command line arguments!
 
 **Example**:
 ```bash
