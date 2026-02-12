@@ -129,7 +129,7 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 Note that these must be preformed ALONE, like this: --show-current-pokemon
 They also must have the file name and stuff before.
 --show-current-pokemon
---edit Pokemon-Name new-pokemon-stats
+--edit Pokemon-Name new-pokemon-stats (WARNING CALL: THIS WILL DELETE ALL DATA FOR THE POKEMON UNLESS SPECIFIED. USE WITH MODESTY)
 
 ## Installation
 
