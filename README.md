@@ -125,6 +125,11 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 --desc2 "Its flames grow hotter when angered."
 ```
 
+### Separate Utilities
+Note that these must be preformed ALONE, like this: --show-current-pokemon
+They also must have the file name and stuff before.
+--show-current-pokemon
+
 ## Installation
 
 Since packs are **separate**, install both:
