@@ -1,13 +1,13 @@
 # QUICK START GUIDE - Read This First!
 
-## ⚠️ CRITICAL: File Locations
+##  CRITICAL: File Locations
 
-### ✅ WHERE TO PUT THE PYTHON SCRIPT:
+### WHERE TO PUT THE PYTHON SCRIPT:
 ```
 Downloads/cobblemon_pack_generator.py    ← Script goes HERE!
 ```
 
-### ✅ WHERE TO PUT YOUR BLOCKBENCH FILES:
+###  WHERE TO PUT YOUR BLOCKBENCH FILES:
 ```
 Downloads/Mod-ResourceAndBehavior-Packs/
 ├── yourpokemon.geo.json          ← Model
@@ -16,12 +16,12 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 └── yourpokemon_shiny.png         ← Texture (shiny, optional)
 ```
 
-### ❌ DO NOT PUT THE SCRIPT IN THE SAME FOLDER AS YOUR FILES!
+### DO NOT PUT THE SCRIPT IN THE SAME FOLDER AS YOUR FILES!
 If you put `cobblemon_pack_generator.py` inside `Mod-ResourceAndBehavior-Packs/`, it might get deleted by the cleanup function!
 
 ---
 
-## 📁 Correct Folder Structure
+## Correct Folder Structure
 
 ```
 Downloads/
@@ -35,7 +35,7 @@ Downloads/
 
 ---
 
-## 🚀 Running the Script
+## Running the Script
 
 ### Step 1: Open Terminal/Command Prompt
 - **Windows**: Press Win+R, type `cmd`, press Enter
@@ -67,7 +67,7 @@ The script creates TWO folders in `Downloads/Mod-ResourceAndBehavior-Packs/`:
 
 ---
 
-## 🔄 Adding Multiple Pokémon
+## Adding Multiple Pokémon
 
 Just run the script again with different files and name:
 
@@ -85,7 +85,7 @@ python cobblemon_pack_generator.py --name Aquadragon --number 1002
 
 ---
 
-## 📦 Installing Your Packs
+## Installing Your Packs
 
 ### Step 1: Copy Resource Pack
 ```
@@ -113,18 +113,18 @@ TO:   .minecraft/saves/YourWorldName/datapacks/my_cobblemon_pack/
 
 ---
 
-## 🐛 Practice Dummy Issue?
+## Practice Dummy Issue?
 
 If your Pokémon shows as a practice dummy, check these:
 
-### ✅ Checklist:
+### Checklist:
 - [ ] Both resource_pack AND behavior_pack are installed
 - [ ] Resource pack is ENABLED in Options → Resource Packs
 - [ ] You ran `/reload` after installing packs
 - [ ] Texture file is `.png` format (not .jpg)
 - [ ] Model identifier in Blockbench matches Pokémon name (lowercase)
 
-### 🔧 Model Identifier Check:
+### Model Identifier Check:
 1. Open your `.geo.json` file in a text editor
 2. Look for: `"identifier": "geometry.yourpokemon"`
 3. The name after `geometry.` should match your `--name` argument (in lowercase)
@@ -147,7 +147,7 @@ Example:
 
 ---
 
-## 🛡️ Script Keeps Disappearing?
+## Script Keeps Disappearing?
 
 ### Reason:
 You probably put the script INSIDE `Mod-ResourceAndBehavior-Packs/` folder!
@@ -165,24 +165,24 @@ This prevents ANY file deletion (keeps source files too).
 
 ---
 
-## 📋 File Extensions Guide
+## File Extensions Guide
 
 ### What Gets Picked Up:
-- ✅ `.geo.json` - Model file
-- ✅ `.animation.json` - Animation file
-- ✅ `.png` - Texture file
-- ✅ `.tga` - Texture file (alternative)
+-  `.geo.json` - Model file
+-  `.animation.json` - Animation file
+-  `.png` - Texture file
+-  `.tga` - Texture file (alternative)
 
 ### What Gets Ignored:
-- ❌ `.py` - Python scripts (protected!)
-- ❌ `.txt` - Text files
-- ❌ `.md` - Markdown files
-- ❌ Folders/directories
-- ❌ Hidden files (starting with `.`)
+-  `.py` - Python scripts (protected!)
+-  `.txt` - Text files
+-  `.md` - Markdown files
+-  Folders/directories
+-  Hidden files (starting with `.`)
 
 ---
 
-## 💡 Pro Tips
+## Pro Tips
 
 1. **Always use --no-cleanup while testing**:
    ```bash
@@ -201,7 +201,7 @@ This prevents ANY file deletion (keeps source files too).
 
 ---
 
-## 🆘 Still Having Issues?
+## Still Having Issues?
 
 1. Make sure you have the **latest version** of the script
 2. Check that **Cobblemon mod is installed** and working
@@ -210,7 +210,7 @@ This prevents ANY file deletion (keeps source files too).
 
 ---
 
-## ✅ Quick Verification
+## Quick Verification
 
 Run this to check your setup:
 
