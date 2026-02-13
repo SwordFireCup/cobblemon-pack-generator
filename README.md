@@ -1,8 +1,10 @@
-This is a WIP but may be used nonetheless. Does not currently find errors in species changing, only in Pokemon. High relability.
+Extremely High Reliability, Over 100 Bug Supports
+
+Download the file and run this in the terminal:
 
 python pack_checker.py
 
-It will report every error (FIX IMMEDIATELY) or warning (CONSIDER FIXING) that I have ever seen. Notice that it cannot detect CUSTOM MOVES if you have them and other intended things. Investigate before "fixing" a warning.
+It will report every error (FIX IMMEDIATELY) or warning (CONSIDER FIXING) that I have ever seen. Notice that it cannot detect CUSTOM MOVES if you have them. Investigate before "fixing" a warning.
 
 Thats it! Happy checking.
 
