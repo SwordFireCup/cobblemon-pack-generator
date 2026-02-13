@@ -440,7 +440,7 @@ class CobblemonPackGenerator:
         if files['animations']:
             dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_lower
             for anim_file in files['animations']:
-                dest_file = dest_dir / f"{pokemon_lower}.animation.json"  # Use .animation.json NOT _animation.json
+                dest_file = dest_dir / f"{pokemon_lower}.animation.json"  # Standard Bedrock format
                 shutil.copy2(anim_file, dest_file)
                 print(f"  ✓ Animation: {anim_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
         
