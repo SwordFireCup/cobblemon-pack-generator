@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+"""
+Cobblemon Pack Error Checker (v1.0)
+Validates all files in your Cobblemon pack for common errors
+"""
+
+import json
+import os
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+
+class CobblemonPackChecker:
+    """Checks Cobblemon packs for errors"""
+    
+    VALID_TYPES = [
+        "normal", "fire", "water", "electric", "grass", "ice", "fighting",
+        "poison", "ground", "flying", "psychic", "bug", "rock", "ghost",
+        "dragon", "dark", "steel", "fairy"
+    ]
+    
+    REQUIRED_ANIMATIONS = [
+        "ground_idle", "ground_walk", "battle_idle"
+    ]
+    
+    OPTIONAL_ANIMATIONS = [
+        "sleep", "faint", "cry", "air_idle", "air_fly", "water_idle", "water_swim"
+    ]
+    
+    def __init__(self, pack_path: str = None):
+        if pack_path is None:
+            pack_path = str(Path.home() / "Downloads" / "Mod-ResourceAndBehavior-Packs")
+        
+        self.pack_path = Path(pack_path)
+        self.errors = []
+        self.warnings = []
+        self.info = []
+        
+    def check_all(self):
+        """Run all checks"""
+        print(f"\n{'='*70}")
+        print("🔍 COBBLEMON PACK ERROR CHECKER")
+        print(f"{'='*70}\n")
+        print(f"📁 Checking pack: {self.pack_path}\n")
+        
+        # Check pack structure
+        self.check_pack_structure()
+        
+        # Find all Pokemon
+        pokemon_list = self.find_all_pokemon()
+        
+        if not pokemon_list:
+            self.errors.append("No Pokémon found in pack!")
+            self.print_results()
+            return
+        
+        print(f"Found {len(pokemon_list)} Pokémon to check...\n")
+        
+        # Check each Pokemon
+        for pokemon_name in pokemon_list:
+            self.check_pokemon(pokemon_name)
+        
+        # Print results
+        self.print_results()
+    
+    def check_pack_structure(self):
+        """Check basic pack structure"""
+        print("📦 Checking pack structure...")
+        
+        # Check resource pack
+        resource_pack = self.pack_path / "resource_pack"
+        if not resource_pack.exists():
+            self.errors.append("Missing resource_pack folder!")
+        else:
+            self.info.append("✓ resource_pack folder exists")
+        
+        # Check behavior pack
+        behavior_pack = self.pack_path / "behavior_pack"
+        if not behavior_pack.exists():
+            self.errors.append("Missing behavior_pack folder!")
+        else:
+            self.info.append("✓ behavior_pack folder exists")
+        
+        print()
+    
+    def find_all_pokemon(self) -> List[str]:
+        """Find all Pokemon in the pack"""
+        pokemon = set()
+        
+        # Check species files
+        species_dir = self.pack_path / "behavior_pack" / "data" / "cobblemon" / "species" / "custom"
+        if species_dir.exists():
+            for file in species_dir.glob("*.json"):
+                pokemon.add(file.stem)
+        
+        return sorted(list(pokemon))
+    
+    def check_pokemon(self, pokemon_name: str):
+        """Check all files for a specific Pokemon"""
+        print(f"🔍 Checking {pokemon_name.upper()}...")
+        
+        errors_found = False
+        
+        # Check species file
+        if not self.check_species_file(pokemon_name):
+            errors_found = True
+        
+        # Check model file
+        if not self.check_model_file(pokemon_name):
+            errors_found = True
+        
+        # Check animation file
+        if not self.check_animation_file(pokemon_name):
+            errors_found = True
+        
+        # Check texture files
+        if not self.check_texture_files(pokemon_name):
+            errors_found = True
+        
+        # Check poser file
+        if not self.check_poser_file(pokemon_name):
+            errors_found = True
+        
+        # Check resolver file
+        if not self.check_resolver_file(pokemon_name):
+            errors_found = True
+        
+        # Check spawn file
+        if not self.check_spawn_file(pokemon_name):
+            errors_found = True
+        
+        if not errors_found:
+            print(f"   ✅ All checks passed!\n")
+        else:
+            print(f"   ⚠️  Issues found (see below)\n")
+    
+    def check_species_file(self, pokemon_name: str) -> bool:
+        """Check species JSON file"""
+        species_file = self.pack_path / "behavior_pack" / "data" / "cobblemon" / "species" / "custom" / f"{pokemon_name}.json"
+        
+        if not species_file.exists():
+            self.errors.append(f"{pokemon_name}: Missing species file: {species_file}")
+            return False
+        
+        try:
+            with open(species_file, 'r') as f:
+                data = json.load(f)
+            
+            # Check required fields
+            required_fields = ["name", "nationalPokedexNumber", "primaryType", "baseStats"]
+            for field in required_fields:
+                if field not in data:
+                    self.errors.append(f"{pokemon_name}: Missing required field '{field}' in species file")
+            
+            # Check types
+            if "primaryType" in data:
+                ptype = data["primaryType"].lower()
+                if ptype not in self.VALID_TYPES:
+                    self.warnings.append(f"{pokemon_name}: Invalid primary type '{ptype}'")
+            
+            if "secondaryType" in data:
+                stype = data["secondaryType"].lower()
+                if stype not in self.VALID_TYPES:
+                    self.warnings.append(f"{pokemon_name}: Invalid secondary type '{stype}'")
+            
+            # Check base stats
+            if "baseStats" in data:
+                stats = data["baseStats"]
+                required_stats = ["hp", "attack", "defence", "special_attack", "special_defence", "speed"]
+                for stat in required_stats:
+                    if stat not in stats:
+                        self.errors.append(f"{pokemon_name}: Missing base stat '{stat}'")
+            
+            # Check abilities
+            if "abilities" in data:
+                if not isinstance(data["abilities"], list):
+                    self.errors.append(f"{pokemon_name}: abilities must be an array")
+                elif len(data["abilities"]) == 0:
+                    self.warnings.append(f"{pokemon_name}: Empty abilities array (will cause spawn issues)")
+            
+            return True
+            
+        except json.JSONDecodeError as e:
+            self.errors.append(f"{pokemon_name}: Invalid JSON in species file: {e}")
+            return False
+        except Exception as e:
+            self.errors.append(f"{pokemon_name}: Error reading species file: {e}")
+            return False
+    
+    def check_model_file(self, pokemon_name: str) -> bool:
+        """Check model .geo.json file"""
+        model_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_name / f"{pokemon_name}.geo.json"
+        
+        if not model_file.exists():
+            self.errors.append(f"{pokemon_name}: Missing model file: {model_file}")
+            return False
+        
+        try:
+            with open(model_file, 'r') as f:
+                data = json.load(f)
+            
+            # Check identifier
+            if "minecraft:geometry" in data:
+                geometries = data["minecraft:geometry"]
+                if isinstance(geometries, list) and len(geometries) > 0:
+                    identifier = geometries[0].get("description", {}).get("identifier", "")
+                    expected = f"geometry.{pokemon_name}"
+                    if identifier != expected:
+                        self.warnings.append(f"{pokemon_name}: Model identifier is '{identifier}', expected '{expected}'")
+            
+            # Check file size (warn if suspiciously small)
+            file_size = model_file.stat().st_size
+            if file_size < 100:
+                self.warnings.append(f"{pokemon_name}: Model file is very small ({file_size} bytes) - might be empty!")
+            
+            return True
+            
+        except json.JSONDecodeError as e:
+            self.errors.append(f"{pokemon_name}: Invalid JSON in model file: {e}")
+            return False
+        except Exception as e:
+            self.errors.append(f"{pokemon_name}: Error reading model file: {e}")
+            return False
+    
+    def check_animation_file(self, pokemon_name: str) -> bool:
+        """Check animation .animation.json file"""
+        anim_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_name / f"{pokemon_name}.animation.json"
+        
+        if not anim_file.exists():
+            self.errors.append(f"{pokemon_name}: Missing animation file: {anim_file}")
+            return False
+        
+        try:
+            with open(anim_file, 'r') as f:
+                data = json.load(f)
+            
+            # Check for animations
+            if "animations" not in data:
+                self.errors.append(f"{pokemon_name}: No 'animations' key in animation file")
+                return False
+            
+            animations = data["animations"]
+            
+            # Check required animations
+            for required_anim in self.REQUIRED_ANIMATIONS:
+                anim_key = f"animation.{pokemon_name}.{required_anim}"
+                if anim_key not in animations:
+                    self.errors.append(f"{pokemon_name}: Missing required animation '{required_anim}'")
+            
+            return True
+            
+        except json.JSONDecodeError as e:
+            self.errors.append(f"{pokemon_name}: Invalid JSON in animation file: {e}")
+            return False
+        except Exception as e:
+            self.errors.append(f"{pokemon_name}: Error reading animation file: {e}")
+            return False
+    
+    def check_texture_files(self, pokemon_name: str) -> bool:
+        """Check texture PNG files"""
+        texture_dir = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "textures" / "pokemon" / pokemon_name
+        
+        # Check regular texture
+        regular_texture = texture_dir / f"{pokemon_name}.png"
+        if not regular_texture.exists():
+            self.errors.append(f"{pokemon_name}: Missing regular texture: {regular_texture}")
+            return False
+        
+        # Check shiny texture
+        shiny_texture = texture_dir / f"{pokemon_name}_shiny.png"
+        if not shiny_texture.exists():
+            self.warnings.append(f"{pokemon_name}: Missing shiny texture: {shiny_texture}")
+        
+        return True
+    
+    def check_poser_file(self, pokemon_name: str) -> bool:
+        """Check poser JSON file"""
+        poser_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "posers" / f"{pokemon_name}.json"
+        
+        if not poser_file.exists():
+            self.errors.append(f"{pokemon_name}: Missing poser file: {poser_file}")
+            return False
+        
+        try:
+            with open(poser_file, 'r') as f:
+                data = json.load(f)
+            
+            # Check for poses
+            if "poses" not in data:
+                self.errors.append(f"{pokemon_name}: No 'poses' key in poser file")
+                return False
+            
+            # Check for portrait scale (common issue)
+            if "portraitScale" not in data:
+                self.warnings.append(f"{pokemon_name}: Missing 'portraitScale' in poser (defaults to 1.0)")
+            
+            # Check for profile translation
+            if "profileTranslation" not in data:
+                self.warnings.append(f"{pokemon_name}: Missing 'profileTranslation' in poser")
+            
+            return True
+            
+        except json.JSONDecodeError as e:
+            self.errors.append(f"{pokemon_name}: Invalid JSON in poser file: {e}")
+            return False
+        except Exception as e:
+            self.errors.append(f"{pokemon_name}: Error reading poser file: {e}")
+            return False
+    
+    def check_resolver_file(self, pokemon_name: str) -> bool:
+        """Check resolver JSON file"""
+        resolver_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers" / pokemon_name / f"0_{pokemon_name}_base.json"
+        
+        if not resolver_file.exists():
+            self.errors.append(f"{pokemon_name}: Missing resolver file: {resolver_file}")
+            return False
+        
+        try:
+            with open(resolver_file, 'r') as f:
+                data = json.load(f)
+            
+            # Check model reference
+            if "model" in data:
+                expected_model = f"cobblemon:{pokemon_name}.geo"
+                if data["model"] != expected_model:
+                    self.warnings.append(f"{pokemon_name}: Model reference is '{data['model']}', expected '{expected_model}'")
+            else:
+                self.errors.append(f"{pokemon_name}: No 'model' field in resolver")
+            
+            # Check animations reference
+            if "animations" in data:
+                expected_anim = f"cobblemon:{pokemon_name}.animation"
+                if data["animations"] != expected_anim:
+                    self.warnings.append(f"{pokemon_name}: Animation reference is '{data['animations']}', expected '{expected_anim}'")
+            else:
+                self.errors.append(f"{pokemon_name}: No 'animations' field in resolver")
+            
+            return True
+            
+        except json.JSONDecodeError as e:
+            self.errors.append(f"{pokemon_name}: Invalid JSON in resolver file: {e}")
+            return False
+        except Exception as e:
+            self.errors.append(f"{pokemon_name}: Error reading resolver file: {e}")
+            return False
+    
+    def check_spawn_file(self, pokemon_name: str) -> bool:
+        """Check spawn pool JSON file"""
+        spawn_file = self.pack_path / "behavior_pack" / "data" / "cobblemon" / "spawn_pool_world" / f"{pokemon_name}.json"
+        
+        if not spawn_file.exists():
+            self.warnings.append(f"{pokemon_name}: Missing spawn file (Pokemon won't spawn naturally)")
+            return True  # Not a critical error
+        
+        try:
+            with open(spawn_file, 'r') as f:
+                data = json.load(f)
+            
+            # Check for spawns
+            if "spawns" not in data:
+                self.errors.append(f"{pokemon_name}: No 'spawns' array in spawn file")
+                return False
+            
+            return True
+            
+        except json.JSONDecodeError as e:
+            self.errors.append(f"{pokemon_name}: Invalid JSON in spawn file: {e}")
+            return False
+        except Exception as e:
+            self.errors.append(f"{pokemon_name}: Error reading spawn file: {e}")
+            return False
+    
+    def print_results(self):
+        """Print all errors, warnings, and info"""
+        print(f"\n{'='*70}")
+        print("📊 RESULTS")
+        print(f"{'='*70}\n")
+        
+        if self.errors:
+            print(f"❌ ERRORS ({len(self.errors)}):")
+            for error in self.errors:
+                print(f"   • {error}")
+            print()
+        
+        if self.warnings:
+            print(f"⚠️  WARNINGS ({len(self.warnings)}):")
+            for warning in self.warnings:
+                print(f"   • {warning}")
+            print()
+        
+        if not self.errors and not self.warnings:
+            print("✅ NO ERRORS OR WARNINGS FOUND!")
+            print("   Your pack looks good!\n")
+        
+        print(f"{'='*70}")
+        print(f"Summary: {len(self.errors)} errors, {len(self.warnings)} warnings")
+        print(f"{'='*70}\n")
+
+
+def main():
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Cobblemon Pack Error Checker - Find issues in your pack",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    parser.add_argument('--pack-path', type=str, help='Path to pack directory')
+    
+    args = parser.parse_args()
+    
+    checker = CobblemonPackChecker(pack_path=args.pack_path)
+    checker.check_all()
+
+
+if __name__ == "__main__":
+    main()
