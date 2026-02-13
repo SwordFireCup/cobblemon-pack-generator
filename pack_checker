@@ -28,6 +28,59 @@ class CobblemonPackChecker:
         "sleep", "faint", "cry", "air_idle", "air_fly", "water_idle", "water_swim"
     ]
     
+    # Common Cobblemon moves (not exhaustive, but catches most typos)
+    COMMON_MOVES = {
+        "tackle", "scratch", "pound", "ember", "water_gun", "watergun", "vine_whip", "vinewhip", 
+        "thundershock", "quick_attack", "quickattack", "bite", "flame_charge", "flamecharge",
+        "bubble_beam", "bubblebeam", "razor_leaf", "razorleaf", "thunderbolt", "fire_blast", "fireblast",
+        "hydro_pump", "hydropump", "solar_beam", "solarbeam", "thunder", "earthquake", "surf",
+        "psychic", "shadow_ball", "shadowball", "ice_beam", "icebeam", "flamethrower", 
+        "dragon_pulse", "dragonpulse", "dragon_breath", "dragonbreath", "dragon_claw", "dragonclaw",
+        "hyper_beam", "hyperbeam", "giga_impact", "gigaimpact", "draco_meteor", "dracometeor",
+        "outrage", "play_rough", "playrough", "moonblast", "dazzling_gleam", "dazzlinggleam",
+        "body_slam", "bodyslam", "take_down", "takedown", "double_edge", "doubleedge", "slash",
+        "iron_tail", "irontail", "iron_head", "ironhead", "iron_defense", "irondefense",
+        "aerial_ace", "aerialace", "air_slash", "airslash", "air_cutter", "aircutter",
+        "hurricane", "brave_bird", "bravebird", "stone_edge", "stoneedge", "rock_slide", "rockslide",
+        "bulldoze", "mud_shot", "mudshot", "mud_slap", "mudslap", "earth_power", "earthpower",
+        "drill_run", "drillrun", "poison_jab", "poisonjab", "sludge_bomb", "sludgebomb",
+        "gunk_shot", "gunkshot", "cross_poison", "crosspoison", "venoshock", "toxic",
+        "lava_plume", "lavaplume", "eruption", "overheat", "heat_wave", "heatwave",
+        "scald", "aqua_tail", "aquatail", "waterfall", "crunch", "dark_pulse", "darkpulse",
+        "night_slash", "nightslash", "sucker_punch", "suckerpunch", "foul_play", "foulplay",
+        "flash_cannon", "flashcannon", "steel_wing", "steelwing", "meteor_mash", "meteormash",
+        "metal_burst", "metalburst", "play_rough", "playrough", "charm", "baby_doll_eyes", "babydolleyes",
+        "helping_hand", "helpinghand", "protect", "detect", "rest", "sleep_talk", "sleeptalk",
+        "roar", "growl", "tail_whip", "tailwhip", "sand_attack", "sandattack", "swift",
+        "confusion", "gust", "psybeam", "future_sight", "futuresight", "wish", "refresh",
+        "cotton_guard", "cottonguard", "sweet_scent", "sweetscent", "last_resort", "lastresort",
+        "trump_card", "trumpcard"
+    }
+    
+    # Common Cobblemon abilities (not exhaustive, but catches most typos)
+    COMMON_ABILITIES = {
+        "overgrow", "blaze", "torrent", "swarm", "keen_eye", "tangled_feet", "big_pecks",
+        "guts", "hustle", "inner_focus", "intimidate", "hyper_cutter", "sand_veil", "sand_rush",
+        "static", "lightning_rod", "volt_absorb", "motor_drive", "competitive", "defiant",
+        "levitate", "synchronize", "magic_guard", "magic_bounce", "filter", "solid_rock",
+        "storm_drain", "water_absorb", "dry_skin", "hydration", "rain_dish", "swift_swim",
+        "chlorophyll", "leaf_guard", "solar_power", "flash_fire", "drought", "flame_body",
+        "white_smoke", "pure_power", "huge_power", "wonder_guard", "air_lock", "cloud_nine",
+        "compound_eyes", "tinted_lens", "insomnia", "vital_spirit", "immunity", "limber",
+        "oblivious", "own_tempo", "adaptability", "skill_link", "technician", "iron_fist",
+        "sheer_force", "serene_grace", "super_luck", "sniper", "stall", "slow_start",
+        "truant", "normalize", "wonder_skin", "unaware", "simple", "contrary", "defeatist",
+        "cursed_body", "weak_armor", "heavy_metal", "light_metal", "multiscale", "toxic_boost",
+        "flare_boost", "harvest", "telepathy", "moody", "overcoat", "poison_heal", "regenerator",
+        "naturalcure", "arenatrap", "pixilate", "refrigerate", "aerilate", "galvanize"
+    }
+    
+    # Valid egg groups
+    VALID_EGG_GROUPS = {
+        "monster", "water1", "bug", "flying", "field", "fairy", "grass", "humanlike",
+        "water3", "mineral", "amorphous", "water2", "ditto", "dragon", "undiscovered"
+    }
+    
     def __init__(self, pack_path: str = None):
         if pack_path is None:
             pack_path = str(Path.home() / "Downloads" / "Mod-ResourceAndBehavior-Packs")
@@ -36,6 +89,8 @@ class CobblemonPackChecker:
         self.errors = []
         self.warnings = []
         self.info = []
+        self.dex_numbers = {}  # Track dex numbers to find duplicates
+        self.model_bones = {}  # Cache model bones for validation
         
     def check_all(self):
         """Run all checks"""
@@ -174,6 +229,15 @@ class CobblemonPackChecker:
                 if field not in data:
                     self.errors.append(f"{pokemon_name}: Missing required field '{field}' in species file")
             
+            # Check for duplicate dex numbers
+            if "nationalPokedexNumber" in data:
+                dex_num = data["nationalPokedexNumber"]
+                if dex_num in self.dex_numbers:
+                    self.errors.append(f"{pokemon_name}: ❌ DUPLICATE DEX NUMBER #{dex_num}!")
+                    self.errors.append(f"  Already used by: {self.dex_numbers[dex_num]}")
+                else:
+                    self.dex_numbers[dex_num] = pokemon_name
+            
             # Check types
             if "primaryType" in data:
                 ptype = data["primaryType"]
@@ -201,6 +265,22 @@ class CobblemonPackChecker:
                 for stat in required_stats:
                     if stat not in stats:
                         self.errors.append(f"{pokemon_name}: Missing base stat '{stat}'")
+                    else:
+                        stat_value = stats[stat]
+                        if not isinstance(stat_value, (int, float)):
+                            self.errors.append(f"{pokemon_name}: Stat '{stat}' must be a number, got: {type(stat_value).__name__}")
+                        elif stat_value < 1:
+                            self.errors.append(f"{pokemon_name}: Stat '{stat}' is {stat_value} (must be at least 1)")
+                        elif stat_value > 255:
+                            self.warnings.append(f"{pokemon_name}: Stat '{stat}' is {stat_value} (over 255 is unusual)")
+                
+                # Calculate and warn about BST
+                if all(stat in stats for stat in required_stats):
+                    bst = sum(stats[stat] for stat in required_stats)
+                    if bst < 180:
+                        self.warnings.append(f"{pokemon_name}: Very low BST ({bst}) - weaker than Magikarp!")
+                    elif bst > 720:
+                        self.warnings.append(f"{pokemon_name}: Very high BST ({bst}) - stronger than Arceus!")
             
             # Check abilities
             if "abilities" in data:
@@ -209,8 +289,11 @@ class CobblemonPackChecker:
                 elif len(data["abilities"]) == 0:
                     self.warnings.append(f"{pokemon_name}: Empty abilities array (will cause spawn issues)")
                 else:
-                    # Abilities exist and not empty - good!
-                    pass
+                    # Validate ability names
+                    for ability in data["abilities"]:
+                        ability_clean = ability.replace("h:", "").lower()
+                        if ability_clean not in self.COMMON_ABILITIES:
+                            self.warnings.append(f"{pokemon_name}: Unknown ability '{ability}' (might be a typo)")
             
             # Check moves list
             if "moves" in data:
@@ -221,11 +304,68 @@ class CobblemonPackChecker:
                     elif move_count == 1 and data["moves"][0] == "1:tackle":
                         self.warnings.append(f"{pokemon_name}: Only has 'tackle' - this is likely a placeholder!")
                     
-                    # Check move format
+                    # Check move format and names
                     for move in data["moves"]:
                         if isinstance(move, str):
                             if ":" not in move:
                                 self.errors.append(f"{pokemon_name}: Invalid move format '{move}' - must be 'level:movename'")
+                            else:
+                                level, move_name = move.split(":", 1)
+                                
+                                # Handle special prefixes (tm, egg, tutor)
+                                if level.lower() in ["tm", "egg", "tutor"]:
+                                    # These are valid non-numeric levels
+                                    pass
+                                else:
+                                    # Validate level number
+                                    try:
+                                        level_num = int(level)
+                                        if level_num < 1:
+                                            self.warnings.append(f"{pokemon_name}: Move level {level_num} is less than 1")
+                                        elif level_num > 100:
+                                            self.warnings.append(f"{pokemon_name}: Move level {level_num} is over 100")
+                                    except ValueError:
+                                        self.errors.append(f"{pokemon_name}: Move level '{level}' is not a valid number or prefix (use 'tm', 'egg', 'tutor', or a number)")
+                                
+                                # Validate move name
+                                move_name_clean = move_name.lower().strip().replace("_", "")
+                                if move_name_clean not in self.COMMON_MOVES:
+                                    # Check without underscores (some are formatted differently)
+                                    self.warnings.append(f"{pokemon_name}: Unknown move '{move_name}' (might be a typo or modded move)")
+            
+            # Check catch rate
+            if "catchRate" in data:
+                catch_rate = data["catchRate"]
+                if not isinstance(catch_rate, (int, float)):
+                    self.errors.append(f"{pokemon_name}: catchRate must be a number")
+                elif catch_rate < 3:
+                    self.warnings.append(f"{pokemon_name}: catchRate {catch_rate} is very low (harder than legendaries!)")
+                elif catch_rate > 255:
+                    self.errors.append(f"{pokemon_name}: catchRate {catch_rate} exceeds maximum (255)")
+            
+            # Check height and weight
+            if "height" in data:
+                height = data["height"]
+                if height <= 0:
+                    self.warnings.append(f"{pokemon_name}: height {height} is zero or negative!")
+                elif height < 1:
+                    self.warnings.append(f"{pokemon_name}: height {height} is very small (under 0.1m)")
+                elif height > 200:
+                    self.warnings.append(f"{pokemon_name}: height {height} is enormous (over 20m!)")
+            
+            if "weight" in data:
+                weight = data["weight"]
+                if weight <= 0:
+                    self.warnings.append(f"{pokemon_name}: weight {weight} is zero or negative!")
+                elif weight > 10000:
+                    self.warnings.append(f"{pokemon_name}: weight {weight} is extremely heavy (over 1000kg!)")
+            
+            # Check egg groups
+            if "eggGroups" in data:
+                if isinstance(data["eggGroups"], list):
+                    for egg_group in data["eggGroups"]:
+                        if egg_group.lower() not in self.VALID_EGG_GROUPS:
+                            self.warnings.append(f"{pokemon_name}: Unknown egg group '{egg_group}'")
             
             return True
             
@@ -261,7 +401,12 @@ class CobblemonPackChecker:
                 if isinstance(geometries, list) and len(geometries) > 0:
                     identifier = geometries[0].get("description", {}).get("identifier", "")
                     expected = f"geometry.{pokemon_name}"
-                    if identifier != expected:
+                    
+                    # Check if identifier is completely wrong (different pokemon)
+                    if identifier and not identifier.endswith(pokemon_name):
+                        self.errors.append(f"{pokemon_name}: ❌ Model identifier '{identifier}' doesn't match filename!")
+                        self.errors.append(f"  Expected: '{expected}'")
+                    elif identifier != expected:
                         self.warnings.append(f"{pokemon_name}: Model identifier is '{identifier}', expected '{expected}'")
                     
                     # Extract bone names for later validation
@@ -391,10 +536,18 @@ class CobblemonPackChecker:
             
             # CRITICAL HEAD FIELD BUG CHECK
             if "head" in data:
-                if data["head"] is None or data["head"] == "null" or data["head"] == "":
+                head_bone = data["head"]
+                if head_bone is None or head_bone == "null" or head_bone == "":
                     self.errors.append(f"{pokemon_name}: ❌ CRITICAL BUG! 'head' field is null/empty")
                     self.errors.append(f"  If no head bone, DELETE the 'head' field entirely (don't set to null!)")
                     self.errors.append(f"  This causes the 'practice dummy' bug!")
+                else:
+                    # Check if head bone actually exists in model
+                    if hasattr(self, 'model_bones') and pokemon_name in self.model_bones:
+                        model_bone_list = self.model_bones[pokemon_name]
+                        if head_bone not in model_bone_list:
+                            self.errors.append(f"{pokemon_name}: ❌ Head bone '{head_bone}' doesn't exist in model!")
+                            self.errors.append(f"  Model bones are: {', '.join(model_bone_list)}")
             
             # Check for portrait scale (common issue)
             if "portraitScale" not in data:
