@@ -1,17 +1,5 @@
-**This generator is a WIP.**
+This is a WIP but may be used nonetheless. Does not currently find errors in species changing, only in Pokemon. High relability.
 
-Therefore it might have **bugs** that have not been fixed.
+python pack-checker.py
 
-SO use at your OWN RISK.
-
-THIS IS ADVANCED STUFF!
-
-Don't be sad if it dosn't work because my program is terrible.
-
-Just a warning.
-
-Good pokemon changing!
-
-**Remember:** This is an advanced tool for experienced users. No troubleshooting section is provided - you're expected to figure things out!
-
-
+Thats it! Happy checking.
