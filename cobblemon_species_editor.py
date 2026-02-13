@@ -59,7 +59,7 @@ class CobblemonSpeciesEditor:
             moves_list = [m.strip() for m in config['add_moves'].split(',')]
             addition_data["moves"] = moves_list
             changes_made.append(f"Moves: {len(moves_list)} moves set")
-            print(f"⚠️  WARNING: This will REPLACE all moves for {target}!")
+            print(f"  WARNING: This will REPLACE all moves for {target}!")
             print(f"   The Pokémon will ONLY know these {len(moves_list)} moves.")
             print(f"   To keep existing moves, you must include them in the list.\n")
         
@@ -85,20 +85,20 @@ class CobblemonSpeciesEditor:
                     "minLevel": evo_level
                 })
                 changes_made.append(f"Evolution: {target} → {evo_target} at level {evo_level}")
-                print(f"✅ Adding evolution: {target} → {evo_target} at level {evo_level}")
+                print(f" Adding evolution: {target} → {evo_target} at level {evo_level}")
             
             elif evo_method == 'item_interact':
                 evo_item = config.get('evo_item')
                 if not evo_item:
-                    print(f"⚠️  WARNING: item_interact requires --evo-item! Using default.")
+                    print(f"  WARNING: item_interact requires --evo-item! Using default.")
                     evo_item = "minecraft:stone"
                 evolution["requiredContext"] = evo_item
                 changes_made.append(f"Evolution: {target} → {evo_target} with {evo_item}")
-                print(f"✅ Adding evolution: {target} → {evo_target} with {evo_item}")
+                print(f" Adding evolution: {target} → {evo_target} with {evo_item}")
             
             elif evo_method == 'trade':
                 changes_made.append(f"Evolution: {target} → {evo_target} by trading")
-                print(f"✅ Adding evolution: {target} → {evo_target} by trading")
+                print(f" Adding evolution: {target} → {evo_target} by trading")
                 if config.get('evo_item'):
                     evolution["requirements"].append({
                         "variant": "held_item",
@@ -113,33 +113,33 @@ class CobblemonSpeciesEditor:
         if config.get('primary_type'):
             ptype = config['primary_type'].lower()
             if ptype not in self.TYPES:
-                print(f"⚠️  WARNING: '{ptype}' is not a valid type!")
+                print(f"  WARNING: '{ptype}' is not a valid type!")
                 print(f"   Valid types: {', '.join(self.TYPES)}")
                 print(f"   Continuing anyway (might work in newer versions)...\n")
             addition_data["primaryType"] = ptype
             changes_made.append(f"Primary Type: {ptype}")
-            print(f"✅ Changing primary type to: {ptype}")
+            print(f" Changing primary type to: {ptype}")
         
         if config.get('secondary_type'):
             stype = config['secondary_type'].lower()
             if stype not in self.TYPES:
-                print(f"⚠️  WARNING: '{stype}' is not a valid type!")
+                print(f"  WARNING: '{stype}' is not a valid type!")
                 print(f"   Valid types: {', '.join(self.TYPES)}")
                 print(f"   Continuing anyway (might work in newer versions)...\n")
             addition_data["secondaryType"] = stype
             changes_made.append(f"Secondary Type: {stype}")
-            print(f"✅ Changing secondary type to: {stype}")
+            print(f" Changing secondary type to: {stype}")
         
         # Change scale if specified
         if config.get('base_scale'):
             addition_data["baseScale"] = float(config['base_scale'])
             changes_made.append(f"Base Scale: {config['base_scale']}")
-            print(f"✅ Setting base scale to: {config['base_scale']}")
+            print(f" Setting base scale to: {config['base_scale']}")
         
         # Change hitbox if specified
         if config.get('hitbox'):
             if ',' not in config['hitbox']:
-                print(f"❌ Error: Hitbox must be in format 'width,height' (e.g., '2,2')")
+                print(f" Error: Hitbox must be in format 'width,height' (e.g., '2,2')")
                 return False
             try:
                 width, height = config['hitbox'].split(',', 1)
@@ -149,9 +149,9 @@ class CobblemonSpeciesEditor:
                     "fixed": False
                 }
                 changes_made.append(f"Hitbox: {width.strip()}x{height.strip()}")
-                print(f"✅ Setting hitbox to: {width.strip()}x{height.strip()}")
+                print(f" Setting hitbox to: {width.strip()}x{height.strip()}")
             except ValueError as e:
-                print(f"❌ Error parsing hitbox: {e}")
+                print(f" Error parsing hitbox: {e}")
                 print(f"   Format: 'width,height' (e.g., '2,2' or '1.5,2.3')")
                 return False
         
@@ -160,7 +160,7 @@ class CobblemonSpeciesEditor:
             abilities_list = [a.strip() for a in config['abilities'].split(',')]
             addition_data["abilities"] = abilities_list
             changes_made.append(f"Abilities: {', '.join(abilities_list)}")
-            print(f"✅ Setting abilities to: {', '.join(abilities_list)}")
+            print(f" Setting abilities to: {', '.join(abilities_list)}")
         
         # Add drops if specified
         if config.get('drops'):
@@ -169,7 +169,7 @@ class CobblemonSpeciesEditor:
             try:
                 for drop in config['drops'].split(','):
                     if ':' not in drop:
-                        print(f"⚠️  WARNING: Skipping invalid drop format: {drop}")
+                        print(f"  WARNING: Skipping invalid drop format: {drop}")
                         print(f"   Format should be: item:percentage")
                         continue
                     item, percentage = drop.split(':', 1)
@@ -178,7 +178,7 @@ class CobblemonSpeciesEditor:
                         "percentage": float(percentage.strip())
                     })
             except ValueError as e:
-                print(f"❌ Error parsing drops: {e}")
+                print(f" Error parsing drops: {e}")
                 print(f"   Format: 'item:percentage,item:percentage'")
                 return False
             
@@ -188,7 +188,7 @@ class CobblemonSpeciesEditor:
                     "entries": drop_entries
                 }
                 changes_made.append(f"Drops: {len(drop_entries)} item(s)")
-                print(f"✅ Adding {len(drop_entries)} drop(s)")
+                print(f" Adding {len(drop_entries)} drop(s)")
         
         # Add behavior changes if specified
         if config.get('can_fly') or config.get('can_swim'):
@@ -199,7 +199,7 @@ class CobblemonSpeciesEditor:
             if config.get('can_fly'):
                 behavior["moving"]["fly"] = {"canFly": True}
                 changes_made.append("Flight: enabled")
-                print(f"✅ Enabling flight")
+                print(f" Enabling flight")
             
             if config.get('can_swim'):
                 behavior["moving"]["swim"] = {
@@ -210,15 +210,15 @@ class CobblemonSpeciesEditor:
                 if config.get('breathe_underwater'):
                     swim_msg += " (can breathe underwater)"
                 changes_made.append(swim_msg)
-                print(f"✅ Enabling swimming")
+                print(f" Enabling swimming")
             
             addition_data["behaviour"] = behavior
         
         # Check if any changes were made
         if not changes_made:
-            print(f"❌ No changes specified!")
+            print(f" No changes specified!")
             print(f"   Use flags like --add-moves, --add-evolution, --primary-type, etc.")
-            print(f"\n💡 Run with --help to see all options")
+            print(f"\n Run with --help to see all options")
             return False
         
         # Write the file
@@ -226,26 +226,26 @@ class CobblemonSpeciesEditor:
             with open(addition_file, 'w') as f:
                 json.dump(addition_data, f, indent=2)
         except Exception as e:
-            print(f"\n❌ ERROR: Failed to write file!")
+            print(f"\n ERROR: Failed to write file!")
             print(f"   {e}")
             print(f"   Check that the directory exists and you have write permissions.")
             return False
         
         print(f"\n{'='*70}")
-        print("✨ SPECIES ADDITION CREATED SUCCESSFULLY! ✨")
+        print(" SPECIES ADDITION CREATED SUCCESSFULLY! ")
         print(f"{'='*70}\n")
-        print(f"📁 Addition file: {addition_file}")
-        print(f"🎯 Target: cobblemon:{target}")
-        print(f"\n📋 Changes applied:")
+        print(f" Addition file: {addition_file}")
+        print(f" Target: cobblemon:{target}")
+        print(f"\n Changes applied:")
         for change in changes_made:
             print(f"   • {change}")
-        print(f"\n💡 How Species Additions Work:")
+        print(f"\n How Species Additions Work:")
         print(f"   • Multiple addons can modify the same Pokémon")
         print(f"   • Evolutions/forms are ADDED (stackable)")
         print(f"   • Other properties are REPLACED (last loaded wins)")
-        print(f"\n⚠️  Remember: Move lists are REPLACED, not appended!")
+        print(f"\n  Remember: Move lists are REPLACED, not appended!")
         print(f"   If you added moves, the Pokémon will ONLY know those moves.\n")
-        print(f"🔄 Reload in-game: /reload")
+        print(f" Reload in-game: /reload")
         print(f"{'='*70}\n")
         
         return True
