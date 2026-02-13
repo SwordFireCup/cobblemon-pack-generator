@@ -6,4 +6,4 @@ It will report every error (FIX IMMEDIATELY) or warning (CONSIDER FIXING) that I
 
 Thats it! Happy checking.
 
-Remember to put your mod files (resource and behavior) in Mod-ResourceAndBehavior-Packs to be checked.
+Remember to put your mod files (resource and behavior) in Mod-ResourceAndBehavior-Packs to be checked. You may also need to put this python file inside.
