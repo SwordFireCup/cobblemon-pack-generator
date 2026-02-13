@@ -136,6 +136,10 @@ class CobblemonPackGenerator:
         abilities = []
         if config.get('abilities'):
             abilities = [a.strip() for a in config['abilities'].split(',')]
+            print(f"  ℹ️  Abilities configured: {abilities}")
+        else:
+            print(f"  ⚠️  WARNING: No abilities specified! Pokémon will fail to spawn!")
+            print(f"     Use --abilities to add abilities (e.g., --abilities \"blaze,h:solar_power\")")
         
         # Parse types
         primary_type = config.get('primary_type', 'normal')
@@ -212,16 +216,22 @@ class CobblemonPackGenerator:
         """Create poser configuration"""
         pokemon_lower = pokemon_name.lower()
         
-        # Build animations based on movement type
+        # Check if head bone exists
+        has_head_bone = config.get('head_bone', 'head').lower() != 'none'
+        
+        # Build base animations for standing pose
+        standing_animations = []
+        if has_head_bone:
+            standing_animations.append("look")
+        standing_animations.append(f"bedrock({pokemon_lower}, ground_idle)")
+        
+        # Build poses based on movement type
         poses = {
             "standing": {
                 "poseName": "standing",
                 "transformTicks": 10,
                 "poseTypes": ["STAND", "NONE", "PORTRAIT", "PROFILE"],
-                "animations": [
-                    "look",
-                    f"bedrock({pokemon_lower}, ground_idle)"
-                ]
+                "animations": standing_animations
             },
             "walking": {
                 "poseName": "walking",
@@ -303,8 +313,11 @@ class CobblemonPackGenerator:
                 },
                 {
                     "aspects": ["shiny"],
+                    "poser": f"cobblemon:{pokemon_lower}",
+                    "model": f"cobblemon:{pokemon_lower}.geo",
                     # Shiny variant with full path
-                    "texture": f"cobblemon:textures/pokemon/{pokemon_lower}/{pokemon_lower}_shiny.png"
+                    "texture": f"cobblemon:textures/pokemon/{pokemon_lower}/{pokemon_lower}_shiny.png",
+                    "layers": []
                 }
             ]
         }
@@ -427,16 +440,34 @@ class CobblemonPackGenerator:
         if files['animations']:
             dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_lower
             for anim_file in files['animations']:
-                dest_file = dest_dir / f"{pokemon_lower}_animation.json"
+                dest_file = dest_dir / f"{pokemon_lower}.animation.json"  # Use .animation.json NOT _animation.json
                 shutil.copy2(anim_file, dest_file)
                 print(f"  ✓ Animation: {anim_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
         
-        # Copy models
+        # Copy models and fix identifier
         if files['models']:
             dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_lower
             for model_file in files['models']:
-                dest_file = dest_dir / f"{pokemon_lower}_geo.json"
-                shutil.copy2(model_file, dest_file)
+                dest_file = dest_dir / f"{pokemon_lower}.geo.json"  # Use .geo.json NOT _geo.json
+                
+                # Read model and fix identifier if needed
+                with open(model_file, 'r') as f:
+                    model_data = json.load(f)
+                
+                # Fix the identifier to match Cobblemon's requirements
+                if 'minecraft:geometry' in model_data:
+                    for geom in model_data['minecraft:geometry']:
+                        if 'description' in geom and 'identifier' in geom['description']:
+                            old_id = geom['description']['identifier']
+                            new_id = f"geometry.{pokemon_lower}"
+                            geom['description']['identifier'] = new_id
+                            if old_id != new_id:
+                                print(f"  ℹ️  Fixed model identifier: {old_id} → {new_id}")
+                
+                # Write fixed model
+                with open(dest_file, 'w') as f:
+                    json.dump(model_data, f, indent=2)
+                
                 print(f"  ✓ Model: {model_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
         
         # Copy textures
