@@ -583,33 +583,6 @@ class CobblemonPackGenerator:
         
         print("✅ Cleanup complete!")
     
-    def cleanup_source_files(self, files: Dict[str, List[Path]]):
-        """Remove source files after copying (NEVER deletes .py files or files outside base_dir)"""
-        print("\n🧹 Cleaning up source files...")
-        
-        files_to_remove = []
-        for file_list in files.values():
-            files_to_remove.extend(file_list)
-        
-        for file in files_to_remove:
-            # Safety checks - NEVER delete:
-            # 1. Python files
-            # 2. Files outside the base directory
-            # 3. The script itself
-            if file.suffix == '.py':
-                print(f"  ⚠️  Skipped (Python file): {file.name}")
-                continue
-            
-            if not str(file).startswith(str(self.base_dir)):
-                print(f"  ⚠️  Skipped (outside base directory): {file.name}")
-                continue
-            
-            if file.exists():
-                file.unlink()
-                print(f"  ✓ Removed: {file.name}")
-        
-        print("✅ Cleanup complete!")
-    
     def show_current_pokemon(self):
         """Display all Pokémon currently in the packs"""
         print(f"\n{'='*70}")
