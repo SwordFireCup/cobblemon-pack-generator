@@ -154,14 +154,23 @@ class CobblemonPackChecker:
             
             # Check types
             if "primaryType" in data:
-                ptype = data["primaryType"].lower()
-                if ptype not in self.VALID_TYPES:
-                    self.warnings.append(f"{pokemon_name}: Invalid primary type '{ptype}'")
+                ptype = data["primaryType"]
+                if ptype is None:
+                    self.errors.append(f"{pokemon_name}: primaryType is null!")
+                else:
+                    ptype = ptype.lower()
+                    if ptype not in self.VALID_TYPES:
+                        self.warnings.append(f"{pokemon_name}: Invalid primary type '{ptype}'")
             
             if "secondaryType" in data:
-                stype = data["secondaryType"].lower()
-                if stype not in self.VALID_TYPES:
-                    self.warnings.append(f"{pokemon_name}: Invalid secondary type '{stype}'")
+                stype = data["secondaryType"]
+                if stype is None:
+                    # Secondary type can be null (single-type Pokemon)
+                    pass
+                else:
+                    stype = stype.lower()
+                    if stype not in self.VALID_TYPES:
+                        self.warnings.append(f"{pokemon_name}: Invalid secondary type '{stype}'")
             
             # Check base stats
             if "baseStats" in data:
@@ -309,10 +318,15 @@ class CobblemonPackChecker:
     
     def check_resolver_file(self, pokemon_name: str) -> bool:
         """Check resolver JSON file"""
-        resolver_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers" / pokemon_name / f"0_{pokemon_name}_base.json"
+        # Correct location per wiki (no subfolder)
+        resolver_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers" / f"0_{pokemon_name}_base.json"
+        
+        # Also check old location with subfolder (for backwards compatibility)
+        if not resolver_file.exists():
+            resolver_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers" / pokemon_name / f"0_{pokemon_name}_base.json"
         
         if not resolver_file.exists():
-            self.errors.append(f"{pokemon_name}: Missing resolver file: {resolver_file}")
+            self.errors.append(f"{pokemon_name}: Missing resolver file (checked both locations)")
             return False
         
         try:
