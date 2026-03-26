@@ -9,29 +9,29 @@ Place your Blockbench files in: `Downloads/Mod-ResourceAndBehavior-Packs/`
 
 Required files:
 - **Model**: `.geo.json` (Blockbench Bedrock geometry)
-- **Animations**: `.animation.json`  
+- **Animations**: `.animation.json`
 - **Textures**: `.png` or `.tga` (first = default, second = shiny)
 
 ### 2. Run the Generator
 
 ```bash
 # Basic Pokémon (minimal customization)
-python cobblemon_pack_generator.py --name Flamebird --number 999
+python pack-generator.py --name Flamebird --number 999
 
 # With custom types and stats
-python cobblemon_pack_generator.py --name Aquadragon --number 1000 \
-  --primary-type water --secondary-type dragon \
-  --hp 100 --attack 80 --defence 90 --special-attack 110
+python pack-generator.py --name Aquadragon --number 1000 --primary-type water --secondary-type dragon --hp 100 --attack 80 --defence 90 --special-attack 110
 
 # With moves and abilities
-python cobblemon_pack_generator.py --name Earthgolem --number 1001 \
-  --moves "1:tackle,7:rockthrow,20:earthquake,tm:stoneedge" \
-  --abilities "sturdy,h:sandforce"
+python pack-generator.py --name Earthgolem --number 1001 --moves "1:tackle,7:rockthrow,20:earthquake,tm:stoneedge" --abilities "sturdy,h:sandforce"
 
 # Flying/Swimming Pokémon
-python cobblemon_pack_generator.py --name Skywhale --number 1002 \
-  --can-fly --can-swim --breathe-underwater \
-  --rarity rare --spawn-biomes "#minecraft:is_ocean"
+python pack-generator.py --name Skywhale --number 1002 --can-fly --can-swim --breathe-underwater --rarity rare --spawn-biomes "#minecraft:is_ocean"
+
+# With evolution
+python pack-generator.py --name Grayfix --number 1 --primary-type dark --secondary-type ground --evo-target brightfix --evo-method level_up --evo-level 28
+
+# Evolution target (set pre-evolution back-link)
+python pack-generator.py --name Brightfix --number 2 --primary-type normal --secondary-type ground --pre-evolution grayfix
 ```
 
 ### 3. Result - Two Separate Packs
@@ -64,9 +64,9 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 - **Server-friendly**: Servers only need behavior pack
 - **Client flexibility**: Players can use just resources if server has data
 - **Different pack formats**: Resource (34) vs Data (48) for 1.21.1
-- ** Can combine ONLY if formats match** (change in script if needed)
+- **Can only combine if formats match** (change in script if needed)
 
-##  Full Customization Options
+## Full Customization Options
 
 ### Basic Info
 | Argument | Description | Default |
@@ -78,8 +78,7 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 
 ### Stats (All default to 50)
 ```bash
---hp 78 --attack 84 --defence 78 \
---special-attack 109 --special-defence 85 --speed 100
+--hp 78 --attack 84 --defence 78 --special-attack 109 --special-defence 85 --speed 100
 ```
 
 ### Moves & Abilities
@@ -87,34 +86,60 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 # Moves format: level:move OR category:move
 --moves "1:tackle,1:growl,7:ember,tm:flamethrower,egg:roost,tutor:airslash"
 
-# Abilities format: ability OR h:hiddenability  
+# Abilities format: ability OR h:hiddenability
 --abilities "blaze,h:solar_power"
 ```
 
-**Move categories**: `1:` (level), `egg:`, `tm:`, `tutor:`
+**Move categories**: `0:` or `1:` (level), `egg:`, `tm:`, `tutor:`
+
+**Note**: Level `0` is valid — it means the move is learned at evolution or from the start.
+
+### Evolution
+```bash
+# Basic level-up evolution
+--evo-target brightfix --evo-method level_up --evo-level 28
+
+# Item interaction evolution
+--evo-target brightfix --evo-method item_interact --evo-item "cobblemon:dragon_scale"
+
+# Trade evolution (optional held item)
+--evo-target brightfix --evo-method trade --evo-item "cobblemon:metal_coat"
+
+# Mark the evolution target's pre-evolution
+--pre-evolution grayfix
+```
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--evo-target` | Pokémon this evolves into | `None` |
+| `--evo-method` | `level_up`, `item_interact`, or `trade` | `level_up` |
+| `--evo-level` | Level to evolve at | `36` |
+| `--evo-item` | Item required for item/trade evolution | `None` |
+| `--pre-evolution` | Pokémon this evolves from | `None` |
 
 ### Physical Properties
 ```bash
 --height 17      # In decimeters (1.7m = 17)
 --weight 905     # In hectograms (90.5kg = 905)
---head-bone none # Meaning No head bone, exclude if you have a head bone
+--head-bone none # No head bone — omit this flag if your model has a head
 ```
 
 ### Movement & Behavior
 ```bash
 --can-fly                # Enables flying
---can-swim               # Enables swimming  
+--can-swim               # Enables swimming
 --breathe-underwater     # Can breathe underwater
+--no-look                # Disables head look tracking (canLook=false)
 ```
 
-**Note**: Poser automatically adds water/air animations when flags are set!
+**Note**: Poser automatically adds water/air animation poses when flags are set.
 
 ### Spawn Configuration
 ```bash
 --rarity rare                           # common|uncommon|rare|ultra-rare
 --spawn-level "10-40"                   # Level range
---spawn-biomes "#minecraft:is_forest"  # Biome tags (comma-separated)
---legendary
+--spawn-biomes "#minecraft:is_forest"   # Biome tags (comma-separated)
+--legendary                             # Auto-sets catch rate, exp, rarity
 ```
 
 ### Descriptions
@@ -123,11 +148,20 @@ Downloads/Mod-ResourceAndBehavior-Packs/
 --desc2 "Its flames grow hotter when angered."
 ```
 
-### Separate Utilities
-Note that these must be preformed ALONE, like this: --show-current-pokemon
-They also must have the file name and stuff before.
---show-current-pokemon
---edit Pokemon-Name new-pokemon-stats (WARNING CALL: THIS WILL DELETE ALL DATA FOR THE POKEMON UNLESS SPECIFIED. USE WITH MODESTY)
+### Utilities
+These must be used alone (not combined with `--name`/`--number`):
+
+```bash
+# Show all Pokémon currently in the pack
+python pack-generator.py --show-current-pokemon
+
+# Edit an existing Pokémon's stats, type, moves, abilities, or rarity
+python pack-generator.py --edit Grayfix --hp 60 --attack 70
+python pack-generator.py --edit Grayfix --moves "0:tackle,5:bite,tm:crunch" --abilities "intimidate,h:sand_rush"
+python pack-generator.py --edit Grayfix --primary-type dark --rarity uncommon
+```
+
+**Warning**: `--edit` only updates what you specify. All other existing data is preserved.
 
 ## Installation
 
@@ -139,7 +173,7 @@ Copy: resource_pack/
 To:   .minecraft/resourcepacks/cobblemon_custom_resource_pack/
 ```
 
-### Step 2: Install Behavior Pack  
+### Step 2: Install Behavior Pack
 ```
 Copy: behavior_pack/
 To:   .minecraft/saves/YourWorld/datapacks/cobblemon_custom_behavior_pack/
@@ -152,34 +186,25 @@ To:   .minecraft/saves/YourWorld/datapacks/cobblemon_custom_behavior_pack/
 4. Run `/reload` to refresh data
 5. Test: `/pokespawn yourpokemon`
 
+## Importing Your Packs (Detailed)
+
+1. Open Minecraft with Cobblemon installed. This pack does not include Cobblemon assets — check CurseForge for the latest version.
+2. Enter **Settings → Resource Packs**.
+3. Drag the resource pack into the window and move it to the **Active** section.
+4. Click **Done** and create a new world.
+5. On the world creation screen go to the third tab and click **Data Packs**.
+6. Drag your behavior pack in and click it to move it to **Active**.
+7. Click **Done** and finish creating the world.
+8. Once in-game, use `/pokespawn pokemon-name` to spawn your Pokémon, or `/pokegive pokemon-name` to add it to your party.
+9. Your Pokémon will also spawn naturally based on its spawn pool configuration.
+
 ## Complete Example
 
 ```bash
-python cobblemon_pack_generator.py \
-  --name Volcanodon \
-  --number 2500 \
-  --primary-type fire \
-  --secondary-type rock \
-  --hp 105 \
-  --attack 130 \
-  --defence 120 \
-  --special-attack 80 \
-  --special-defence 90 \
-  --speed 75 \
-  --moves "1:tackle,1:leer,7:ember,15:rockthrow,25:flameburst,35:rocktomb,45:lavaplume,tm:flamethrower,tm:stoneedge,egg:ancientpower" \
-  --abilities "solid_rock,h:flame_body" \
-  --height 22 \
-  --weight 2500 \
-  --can-swim \
-  --breathe-underwater \
-  --rarity ultra-rare \
-  --spawn-level "40-60" \
-  --spawn-biomes "#minecraft:is_nether" \
-  --desc1 "An ancient Pokémon from volcanic regions." \
-  --desc2 "Its body temperature can melt steel."
+python pack-generator.py --name Volcanodon --number 2500 --primary-type fire --secondary-type rock --hp 105 --attack 130 --defence 120 --special-attack 80 --special-defence 90 --speed 75 --moves "0:tackle,0:leer,7:ember,15:rockthrow,25:flameburst,35:rocktomb,45:lavaplume,tm:flamethrower,tm:stoneedge,egg:ancientpower" --abilities "solidrock,h:flamebody" --height 22 --weight 2500 --rarity ultra-rare --spawn-level "40-60" --spawn-biomes "#minecraft:is_nether" --desc1 "An ancient Pokémon from volcanic regions." --desc2 "Its body temperature can melt steel."
 ```
-non-bashes don't need the \ after each line, just put it as a space separated string, don't forget the -- before each key
-Pack Formats (Important)
+
+## Pack Formats
 
 ```python
 # In the script (top of CobblemonPackGenerator class):
@@ -187,24 +212,9 @@ RESOURCE_PACK_FORMAT = 34  # Change to 40+ if needed
 DATA_PACK_FORMAT = 48      # For 1.21.1
 ```
 
-**Combining packs**: Only possible if BOTH formats are the same. Since resource=34 and data=48, they **must stay separate** for 1.21.1.
+**Combining packs**: Only possible if BOTH formats are the same. Since resource=34 and data=48 for 1.21.1, they must stay separate. If your version uses matching formats you can merge `assets/` and `data/` into one folder with a single `pack.mcmeta`.
 
-If your version uses matching formats, you can:
-1. Change both to same number
-2. Merge `assets/` and `data/` into one folder
-3. Use single `pack.mcmeta`
-
-## File Organization
-
-The script:
-- Renames files to match Pokémon name
-- Places files in correct Cobblemon directories
-- Creates proper pack.mcmeta for each pack
-- Generates all JSON configs (species, poser, resolver, spawn)
-- Creates language file with name + descriptions
-- Names shiny texture automatically (2nd texture file)
-
-##  Blockbench Export Guide
+## Blockbench Export Guide
 
 ### 1. Create Bedrock Entity
 File → New → Bedrock Entity
@@ -212,7 +222,7 @@ File → New → Bedrock Entity
 - Model Identifier: `yourpokemon` (lowercase)
 
 ### 2. Required Animations
-**Land Pokémon** (always needed):
+**All Pokémon**:
 - `ground_idle`
 - `ground_walk`
 - `sleep`
@@ -228,20 +238,24 @@ File → New → Bedrock Entity
 
 **Animation ID format**: `animation.yourpokemon.ground_idle`
 
+**Tip**: If you want the head to look around freely, do NOT include a `rotation` key on the head bone in your idle/walk animations — even `[0, 0, 0]` will lock it. Only use `position` for bobs and sways.
+
 ### 3. Export Files
 - **Model**: File → Export → Export Bedrock Geometry → `yourpokemon.geo.json`
-- **Animations**: Click export button in Animations panel → `yourpokemon.animation.json`
+- **Animations**: Click export in Animations panel → `yourpokemon.animation.json`
 - **Texture**: Export texture → `yourpokemon.png`
 - **Shiny** (optional): Create variant → `yourpokemon_shiny.png`
 
+The generator will rename files correctly on copy — you can export with underscores (`yourpokemon_geo.json`) and it will fix them.
+
 ## Pro Tips
 
-- **Stats**: Total should be 300-600 for balanced gameplay
-- **Moves format**: Use proper prefixes (`1:`, `tm:`, `egg:`, `tutor:`)
+- **Stats**: Total BST should be 300–600 for balanced gameplay
+- **Moves**: Use level `0` for moves learned at evolution or from the start
 - **Hidden ability**: Always prefix with `h:` (e.g., `h:solar_power`)
 - **Biomes**: Use tags like `#minecraft:is_forest` or specific like `minecraft:plains`
 - **Testing**: Use `--no-cleanup` to keep original files while testing
-- **Combining**: Only combine packs if formats match (edit script constants)
+- **Evolution chains**: Run the generator once per Pokémon in the chain, using `--evo-target` on the pre-evolution and `--pre-evolution` on the evolved form
 
 ## Troubleshooting
 
@@ -255,13 +269,20 @@ File → New → Bedrock Entity
 → Ensure Cobblemon mod is installed
 
 **Pokémon not spawning**
+→ Check abilities are set — an empty abilities list prevents spawning
 → Edit spawn pool JSON in behavior pack
-→ Check biome conditions
 → Use `/reload` after changes
 
+**Pokémon frozen / not animating**
+→ Check animation file has `animation_length` set
+→ Make sure animations have actual keyframes, not just `[0, 0, 0]` placeholders
+
+**Head not looking around**
+→ Remove `rotation` entirely from the head bone in idle/walk animations
+→ Make sure the poser has a `head` field matching your model's head bone name
+
 **Wrong animations playing**
-→ Check animation names in `.animation.json`
-→ Must match: `animation.pokemonname.ground_idle` etc.
+→ Check animation names: must be `animation.pokemonname.ground_idle` etc.
 → Verify poser references correct animations
 
 ## Additional Resources
@@ -272,21 +293,4 @@ File → New → Bedrock Entity
 - [Cobblemon Discord](https://discord.gg/cobblemon)
 
 ---
-Legendary sets up the rarity if you forgot to set it.
 Happy Pokémon creating!
-
-README SECTION 2:
-Importing your packs in more detail
-1. Open minecraft with Cobblemon installed, this pack does not have Cobblemon assets. Check CurseForge for Cobblemon recent versions.
-2. Enter Settings, Resource Packs
-3. Drag the Resource Pack into the screen and put it in the ACTIVE section.
-4. Click the done button and create a new world. This world will contain a data pack that allows you to interact with your pokemon.
-5. Go to the third tab and click Data Packs.
-6. Now drag your behavior pack into the thing and click it to put it in ACTIVE.
-7. Click Done.
-8. Create the rest of the world in any way you want.
-9. With pokemon-name being your pokemon name, type /pokespawn pokemon-name or /pokegive pokemon-name
-10. Pokespawn will spawn your pokemon while pokegive will put that pokemon in your inventory.
-11. You can also find it naturally.
-
-Happy testing!
