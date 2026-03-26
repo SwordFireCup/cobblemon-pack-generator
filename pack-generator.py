@@ -194,7 +194,7 @@ class CobblemonPackGenerator:
             },
             "moves": moves,
             "abilities": abilities,
-            "evolutions": [],
+            "evolutions": self._build_evolutions(pokemon_lower, config),
             "preEvolution": config.get('pre_evolution'),
             "behaviour": {
                 "moving": {
@@ -212,6 +212,40 @@ class CobblemonPackGenerator:
                 }
             }
         }
+
+    def _build_evolutions(self, pokemon_lower: str, config: Dict) -> list:
+        """Build evolutions list from config"""
+        if not config.get('evo_target'):
+            return []
+
+        evo_target = config['evo_target'].lower()
+        evo_method = config.get('evo_method', 'level_up')
+
+        evolution = {
+            "id": f"{pokemon_lower}_{evo_target}",
+            "variant": evo_method,
+            "result": evo_target,
+            "consumeHeldItem": False,
+            "learnableMoves": [],
+            "requirements": []
+        }
+
+        if evo_method == 'level_up':
+            evolution["requirements"].append({
+                "variant": "level",
+                "minLevel": config.get('evo_level', 36)
+            })
+        elif evo_method == 'item_interact':
+            evo_item = config.get('evo_item', 'minecraft:stone')
+            evolution["requiredContext"] = evo_item
+        elif evo_method == 'trade':
+            if config.get('evo_item'):
+                evolution["requirements"].append({
+                    "variant": "held_item",
+                    "item": config['evo_item']
+                })
+
+        return [evolution]
 
     def create_poser_json(self, pokemon_name: str, config: Dict) -> Dict:
         """Create poser configuration"""
@@ -967,6 +1001,14 @@ Examples:
     parser.add_argument('--legendary', action='store_true',
                         help='Make this a legendary Pokémon (sets catchRate=3, baseExp=290, adds legendary label)')
 
+    # Evolution
+    parser.add_argument('--evo-target', type=str, help='Pokémon this evolves into (e.g. "brightfix")')
+    parser.add_argument('--evo-method', type=str, choices=['level_up', 'item_interact', 'trade'],
+                        default='level_up', help='Evolution method (default: level_up)')
+    parser.add_argument('--evo-level', type=int, default=36, help='Level to evolve at (default: 36)')
+    parser.add_argument('--evo-item', type=str, help='Item required for item_interact or trade evolution')
+    parser.add_argument('--pre-evolution', type=str, help='Pokémon this evolves from (e.g. "grayfix")')
+
     # Model customization
     parser.add_argument('--head-bone', type=str, default='head',
                         help='Head bone name (use "none" if model has no head)')
@@ -1020,6 +1062,11 @@ Examples:
         'desc2': args.desc2,
         'head_bone': args.head_bone,
         'legendary': args.legendary,
+        'evo_target': args.evo_target,
+        'evo_method': args.evo_method,
+        'evo_level': args.evo_level,
+        'evo_item': args.evo_item,
+        'pre_evolution': args.pre_evolution,
     }
 
     # Apply legendary settings if --legendary flag is used
