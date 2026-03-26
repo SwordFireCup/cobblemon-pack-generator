@@ -41,7 +41,7 @@ class CobblemonPackChecker:
     "assist", "assurance", "astonish", "astralbarrage",
     "attackorder", "attract", "aurasphere", "aurorabeam", "auroraveil",
     "autotomize", "avalanche", "axekick",
-    
+
     # B
     "babydolleyes", "baddybad", "banefulbunker", "barbbarrage",
     "barrage", "barrier", "batonpass", "beakblast", "beatup",
@@ -56,7 +56,7 @@ class CobblemonPackChecker:
     "bugbite", "bugbuzz", "bulkup", "bulldoze",
     "bulletpunch", "bulletseed", "burningjealousy", "burnup",
     "buzzybuzz",
-    
+
     # C
     "calmmind", "camouflage", "captivate", "catastropika",
     "ceaselessedge", "celebrate", "charge", "chargebeam",
@@ -71,7 +71,7 @@ class CobblemonPackChecker:
     "counter", "courtchange", "covet", "crabhammer",
     "craftyshield", "crosschop", "crosspoison", "crunch",
     "crushclaw", "crushgrip", "curse", "cut",
-    
+
     # D
     "darkestlariat", "darkpulse", "darkvoid", "dazzlinggleam",
     "decorate", "defendorder", "defensecurl", "defog",
@@ -85,7 +85,7 @@ class CobblemonPackChecker:
     "dragonrush", "dragontail", "drainingkiss", "drainpunch",
     "dreameater", "drillpeck", "drillrun", "drumbeating",
     "dualchop", "dualwingbeat", "dynamaxcannon",
-    
+
     # E
     "earthpower", "earthquake", "echoedvoice", "eerieimpulse",
     "eeriespell", "eggbomb", "electricterrain", "electrify",
@@ -94,12 +94,12 @@ class CobblemonPackChecker:
     "energyball", "entrainment", "eruption", "esperwing",
     "eternabeam", "expandingforce", "explosion", "extrasensory",
     "extremeevoboost", "extremespeed",
-    
+
     # F
     "facade", "faintattack", "fairylock", "fairywind",
     "fakeout", "faketears", "falsesurrender", "falseswipe",
     "featherdance", "feint", "feintattack", "fellstinger",
-    "fieryدance", "fierywrath", "filletaway", "finalgambit",
+    "fierydance", "fierywrath", "filletaway", "finalgambit",
     "fireblast", "firefang", "firelash", "firepledge",
     "firepunch", "firespin", "firstimpression", "fishiousrend",
     "fissure", "flail", "flameburst", "flamecharge",
@@ -112,7 +112,7 @@ class CobblemonPackChecker:
     "freezeshock", "freezingglare", "freezyfrost", "frenzyplant",
     "frostbreath", "frustration", "furyattack", "furycutter",
     "furyswipes", "fusionbolt", "fusionflare", "futuresight",
-    
+
     # G
     "gastroacid", "geargrind", "gearup", "genesissupernova",
     "geomancy", "gigadrain", "gigaimpact", "gigatonhammer",
@@ -132,12 +132,12 @@ class CobblemonPackChecker:
     "growth", "grudge", "guardianofalola", "guardsplit",
     "guardswap", "guillotine", "gunkshot", "gust",
     "gustgale",
-    
+
     # H
     "hail", "hammerarm", "happyhour", "harden",
     "haze", "headbutt", "headcharge", "headlongrush",
     "headsmash", "healbell", "healblock", "healingwish",
-    "healorder", "healpulse", "heartestamp", "heartstamp",
+    "healorder", "healpulse", "heartstamp",
     "heartswap", "heatcrash", "heatwave", "heavyslam",
     "helpinghand", "hex", "hiddenpower", "hiddenpowerbug",
     "hiddenpowerdark", "hiddenpowerdragon", "hiddenpowerelectric",
@@ -151,23 +151,23 @@ class CobblemonPackChecker:
     "hydrosteam", "hydrovortex", "hyperbeam", "hyperdrill",
     "hyperfang", "hyperspacefury", "hyperspacehole", "hypervoice",
     "hypnosis",
-    
+
     # I
     "iceball", "icebeam", "iceburn", "icefang",
     "icehammer", "icepunch", "iceshard", "icespinner",
-    "iciclecrash", "icicleспear", "iciclespear", "icywind",
+    "iciclecrash", "iciclespear", "icywind",
     "imprison", "incinerate", "infernalparade", "inferno",
     "infernooverdrive", "infestation", "ingrain", "instruct",
     "iondeluge", "irondefense", "ironhead", "irontail",
-    
+
     # J
     "jawlock", "jetpunch", "judgment", "jumpkick",
     "junglehealing",
-    
+
     # K
     "karatechop", "kinesis", "kingsshield", "knockoff",
     "kowtowcleave",
-    
+
     # L
     "landswrath", "laserfocus", "lashout", "lastresort",
     "lastrespects", "lavaplume", "leafage", "leafblade",
@@ -177,7 +177,7 @@ class CobblemonPackChecker:
     "lockon", "lovelykiss", "lowkick", "lowsweep",
     "luckychant", "luminacrash", "lunarblessing", "lunardance",
     "lunge", "lusterpurge",
-    
+
     # M
     "machpunch", "magiccoat", "magicpowder", "magicroom",
     "magicalleaf", "magmastorm", "magnetbomb", "magneticflux",
@@ -198,18 +198,18 @@ class CobblemonPackChecker:
     "moonlight", "morningsun", "mortalspin", "mountaingale",
     "mudbomb", "mudshot", "mudslap", "mudsport",
     "muddywater", "multiattack", "mysticalfire", "mysticalpower",
-    
+
     # N
     "nastyplot", "naturalgift", "naturepower", "naturesmadness",
     "needlearm", "neverendingnightmare", "nightdaze", "nightmare",
     "nightshade", "nightslash", "nobleroar", "noretreat",
     "noxioustorque", "nuzzle",
-    
+
     # O
     "oblivionwing", "obstruct", "oceanicoperetta", "octazooka",
     "octolock", "odorsleuth", "ominouswind", "orderup",
     "originpulse", "outrage", "overdrive", "overheat",
-    
+
     # P
     "painsplit", "paleowave", "paraboliccharge", "partingshot",
     "payback", "payday", "peck", "perishsong",
@@ -226,13 +226,13 @@ class CobblemonPackChecker:
     "psychup", "psyshieldbash", "psystrike", "psywave",
     "pulverizingpancake", "punishment", "purify", "pursuit",
     "pyroball",
-    
+
     # Q
     "quash", "quickattack", "quickguard", "quiverdance",
-    
+
     # R
     "rage", "ragefist", "ragepowder", "ragingbull",
-    "ragingfury", "raindance", "rapidspin", "raginspin",
+    "ragingfury", "raindance", "rapidspin",
     "razorleaf", "razorshell", "razorwind", "recover",
     "recycle", "reflect", "reflecttype", "refresh",
     "relicsong", "rest", "retaliate", "return",
@@ -242,7 +242,7 @@ class CobblemonPackChecker:
     "rocktomb", "rockwrecker", "roleplay", "rollingkick",
     "rollout", "roost", "rototiller", "round",
     "ruination",
-    
+
     # S
     "sacredfire", "sacredsword", "safeguard", "saltcure",
     "sandattack", "sandsearstorm", "sandstorm", "sandtomb",
@@ -269,7 +269,7 @@ class CobblemonPackChecker:
     "speedswap", "spicyextract", "spiderweb", "spikecannon",
     "spikes", "spikyshield", "spinout", "spiritbreak",
     "spiritshackle", "spite", "spitup", "splash",
-    "splinteredstormshards", "splishysplash", "spite", "spore",
+    "splinteredstormshards", "splishysplash" "spore",
     "spotlight", "springtidestorm", "squall", "stealthrock",
     "steamroller", "steameruption", "steelbeam", "steelroller",
     "steelwing", "stickyweb", "stockpile", "stokedsparksurfer",
@@ -282,7 +282,7 @@ class CobblemonPackChecker:
     "surf", "surgingstrikes", "swagger", "swallow",
     "sweetkiss", "sweetscent", "swift", "switcheroo",
     "swordsdance", "synchronoise", "synthesis",
-    
+
     # T
     "tackle", "tailglow", "tailslap", "tailwhip",
     "tailwind", "takedown", "tarshot", "taunt",
@@ -297,15 +297,15 @@ class CobblemonPackChecker:
     "trickroom", "tripleaxel", "triplearrows", "tripledive",
     "tropkick", "trumpcard", "twinbeam", "twinneedle",
     "twister",
-    
+
     # U
     "uproar", "uturn",
-    
+
     # V
     "vacuumwave", "vcreate", "venomdrench", "venoshock",
     "victorydance", "vinewhip", "vitalthrow", "volttackle",
     "voltswitch",
-    
+
     # W
     "wakeupslap", "waterfall", "watergun", "waterpledge",
     "waterpulse", "watershuriken", "watersport", "waterspout",
@@ -314,13 +314,13 @@ class CobblemonPackChecker:
     "willowisp", "wingattack", "wish", "withdraw",
     "wonderroom", "woodhammer", "workup", "worryseed",
     "wrap", "wringout",
-    
+
     # X
     "xscissor",
-    
+
     # Y
     "yawn",
-    
+
     # Z
     "zapcannon", "zenheadbutt", "zingzap", "zippyzap",
     }
@@ -612,17 +612,19 @@ class CobblemonPackChecker:
                 else:
                     # Validate ability names (strip underscores for comparison)
                     for ability in data["abilities"]:
-                        ability_clean = ability.replace("h:", "").lower().replace("_", "")
+                        ability_clean = ability.replace("h:", "").strip().lower().replace("_", "")
                         if ability_clean not in self.COMMON_ABILITIES:
                             self.warnings.append(f"{pokemon_name}: Unknown ability '{ability}' (might be a typo)")
 
             # Check moves list
             if "moves" in data:
-                if isinstance(data["moves"], list):
+                if not isinstance(data["moves"], list):
+                    self.errors.append(f"{pokemon_name}: 'moves' must be an array, got {type(data['moves']).__name__}")
+                else:
                     move_count = len(data["moves"])
                     if move_count == 0:
                         self.warnings.append(f"{pokemon_name}: No moves defined (Pokemon won't know any moves!)")
-                    elif move_count == 1 and data["moves"][0] == "1:tackle":
+                    elif move_count == 1 and data["moves"][0] in ("0:tackle", "1:tackle"):
                         self.warnings.append(f"{pokemon_name}: Only has 'tackle' - this is likely a placeholder!")
 
                     # Check move format and names
@@ -642,9 +644,9 @@ class CobblemonPackChecker:
                                     # Validate level number
                                     try:
                                         level_num = int(level)
-                                        if level_num < 1:
+                                        if level_num < 0:
                                             self.warnings.append(
-                                                f"{pokemon_name}: Move level {level_num} is less than 1")
+                                                f"{pokemon_name}: Move level {level_num} is negative")
                                         elif level_num > 100:
                                             self.warnings.append(f"{pokemon_name}: Move level {level_num} is over 100")
                                     except ValueError:
