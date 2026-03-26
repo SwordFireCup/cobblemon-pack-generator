@@ -31,8 +31,7 @@ class CobblemonPackChecker:
     # Common Cobblemon moves (not exhaustive, but catches most typos)
     COMMON_MOVES = {
             # A
-    "10000000voltthunderbolt", "10,000,000voltthunderbolt",
-    "absorb", "accelerock", "acid", "acidarmor", "aciddownpour", "acidspray",
+    "10000000voltthunderbolt", "absorb", "accelerock", "acid", "acidarmor", "aciddownpour", "acidspray",
     "acrobatics", "acupressure", "aerialace", "aeroblast", "afteryou",
     "agility", "airslash", "aircutter", "alloutpummeling",
     "allyswitch", "amnesia", "anchorshot", "ancientpower",
@@ -131,7 +130,6 @@ class CobblemonPackChecker:
     "grassyterrain", "gravapple", "gravity", "growl",
     "growth", "grudge", "guardianofalola", "guardsplit",
     "guardswap", "guillotine", "gunkshot", "gust",
-    "gustgale",
 
     # H
     "hail", "hammerarm", "happyhour", "harden",
@@ -256,7 +254,7 @@ class CobblemonPackChecker:
     "shellsidearm", "shellsmash", "shelltrap", "shelter",
     "shiftgear", "shockwave", "shoreup", "signalbeam",
     "silktrap", "silverwind", "simplebeam", "sing",
-    "singerarrowraid", "sizzlyslide", "sketch", "skillswap",
+    "sinisterarrowraid", "sizzlyslide", "sketch", "skillswap",
     "skittersmack", "skullbash", "skyattack", "skydrop",
     "skyuppercut", "slackoff", "slam", "slash",
     "sleeppowder", "sleeptalk", "sludge", "sludgebomb",
@@ -270,7 +268,7 @@ class CobblemonPackChecker:
     "spikes", "spikyshield", "spinout", "spiritbreak",
     "spiritshackle", "spite", "spitup", "splash",
     "splinteredstormshards", "splishysplash" "spore",
-    "spotlight", "springtidestorm", "squall", "stealthrock",
+    "spotlight", "springtidestorm", "stealthrock",
     "steamroller", "steameruption", "steelbeam", "steelroller",
     "steelwing", "stickyweb", "stockpile", "stokedsparksurfer",
     "stomp", "stompingtantrum", "stoneaxe", "stoneedge",
