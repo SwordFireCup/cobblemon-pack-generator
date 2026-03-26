@@ -14,30 +14,30 @@ import argparse
 
 class CobblemonPackGenerator:
     """Generates separate Cobblemon resource and behavior packs"""
-    
+
     # Pack formats for 1.21.1
     RESOURCE_PACK_FORMAT = 34  # Change to 40+ if needed for newer versions
-    DATA_PACK_FORMAT = 48      # Data pack format for 1.21.1
-    
+    DATA_PACK_FORMAT = 48  # Data pack format for 1.21.1
+
     def __init__(self, downloads_path: str = None):
         """Initialize the pack generator"""
         if downloads_path is None:
             downloads_path = str(Path.home() / "Downloads")
-        
+
         self.base_dir = Path(downloads_path) / "Mod-ResourceAndBehavior-Packs"
-        
+
         # Separate packs for easier distribution
         self.resource_pack_dir = self.base_dir / "resource_pack"
         self.behavior_pack_dir = self.base_dir / "behavior_pack"
-        
+
         # Expected file types
         self.animation_extensions = ['.animation.json', '.animations.json']
         self.model_extensions = ['.geo.json', '.json']
         self.texture_extensions = ['.png', '.tga']
-        
+
     def create_pack_mcmeta(self, pack_type: str) -> Dict:
         """Create pack.mcmeta for resource or behavior pack
-        
+
         Note: Packs can only be combined into one folder if both formats match!
         For 1.21.1: Resource = 34 (or 40+), Data = 48
         """
@@ -55,13 +55,13 @@ class CobblemonPackGenerator:
                     "description": "Cobblemon Custom Pokémon - Data Pack"
                 }
             }
-    
+
     def setup_directories(self, pokemon_name: str):
         """Create directory structure for both packs"""
         print(f"\n📁 Setting up directory structure for {pokemon_name}...")
-        
+
         pokemon_lower = pokemon_name.lower()
-        
+
         # Resource pack directories
         resource_dirs = [
             self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_lower,
@@ -71,19 +71,19 @@ class CobblemonPackGenerator:
             self.resource_pack_dir / "assets" / "cobblemon" / "textures" / "pokemon" / pokemon_lower,
             self.resource_pack_dir / "assets" / "cobblemon" / "lang",
         ]
-        
+
         # Behavior pack (data pack) directories
         behavior_dirs = [
             self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom",
             self.behavior_pack_dir / "data" / "cobblemon" / "species_features",
             self.behavior_pack_dir / "data" / "cobblemon" / "spawn_pool_world",
         ]
-        
+
         for directory in resource_dirs + behavior_dirs:
             directory.mkdir(parents=True, exist_ok=True)
-        
+
         print("✅ Directory structure created!")
-    
+
     def find_files_in_base_dir(self) -> Dict[str, List[Path]]:
         """Find all relevant files in the base directory (excludes Python scripts)"""
         files = {
@@ -92,11 +92,11 @@ class CobblemonPackGenerator:
             'textures': [],
             'other': []
         }
-        
+
         if not self.base_dir.exists():
             print(f"⚠️  Base directory not found: {self.base_dir}")
             return files
-        
+
         for file in self.base_dir.iterdir():
             # Skip directories, Python files, and hidden files
             if not file.is_file():
@@ -105,7 +105,7 @@ class CobblemonPackGenerator:
                 continue
             if file.name.startswith('.'):
                 continue
-            
+
             # Check animations
             if any(file.name.endswith(ext) for ext in self.animation_extensions):
                 files['animations'].append(file)
@@ -120,18 +120,18 @@ class CobblemonPackGenerator:
                 files['textures'].append(file)
             else:
                 files['other'].append(file)
-        
+
         return files
-    
+
     def create_species_json(self, pokemon_name: str, config: Dict) -> Dict:
         """Create species definition with customization options"""
         pokemon_lower = pokemon_name.lower()
-        
+
         # Parse moves if provided
         moves = []
         if config.get('moves'):
             moves = [m.strip() for m in config['moves'].split(',')]
-        
+
         # Parse abilities if provided
         abilities = []
         if config.get('abilities'):
@@ -140,16 +140,16 @@ class CobblemonPackGenerator:
         else:
             print(f"  ⚠️  WARNING: No abilities specified! Pokémon will fail to spawn!")
             print(f"     Use --abilities to add abilities (e.g., --abilities \"blaze,h:solar_power\")")
-        
+
         # Parse types
         primary_type = config.get('primary_type', 'normal')
         secondary_type = config.get('secondary_type')
-        
+
         # Get labels - add legendary if flagged
         labels = config.get('labels', ['custom'])
         if config.get('legendary') and 'legendary' not in labels:
             labels.append('legendary')
-        
+
         return {
             "implemented": True,
             "name": pokemon_lower,
@@ -199,7 +199,8 @@ class CobblemonPackGenerator:
             "behaviour": {
                 "moving": {
                     # canLook must be false if no head bone, otherwise true by default
-                    "canLook": False if (config.get('head_bone', 'head').lower() == 'none') else config.get('can_look', True),
+                    "canLook": False if (config.get('head_bone', 'head').lower() == 'none') else config.get('can_look',
+                                                                                                            True),
                     "fly": {
                         "canFly": config.get('can_fly', False)
                     },
@@ -211,20 +212,20 @@ class CobblemonPackGenerator:
                 }
             }
         }
-    
+
     def create_poser_json(self, pokemon_name: str, config: Dict) -> Dict:
         """Create poser configuration"""
         pokemon_lower = pokemon_name.lower()
-        
+
         # Check if head bone exists
         has_head_bone = config.get('head_bone', 'head').lower() != 'none'
-        
+
         # Build base animations for standing pose
         standing_animations = []
         if has_head_bone:
             standing_animations.append("look")
         standing_animations.append(f"bedrock({pokemon_lower}, ground_idle)")
-        
+
         # Build poses based on movement type
         poses = {
             "standing": {
@@ -246,7 +247,7 @@ class CobblemonPackGenerator:
                 "animations": [f"bedrock({pokemon_lower}, sleep)"]
             }
         }
-        
+
         # Add water poses if it can swim
         if config.get('can_swim', False):
             poses["floating"] = {
@@ -261,7 +262,7 @@ class CobblemonPackGenerator:
                 "poseTypes": ["SWIM"],
                 "animations": [f"bedrock({pokemon_lower}, water_swim)"]
             }
-        
+
         # Add flying poses if it can fly
         if config.get('can_fly', False):
             poses["flying"] = {
@@ -276,7 +277,7 @@ class CobblemonPackGenerator:
                 "poseTypes": ["HOVER"],
                 "animations": [f"bedrock({pokemon_lower}, air_idle)"]
             }
-        
+
         result = {
             "portraitScale": config.get('portrait_scale', 1.25),
             "portraitTranslation": [0, 0.5, 0],
@@ -285,7 +286,7 @@ class CobblemonPackGenerator:
             "faint": f"bedrock({pokemon_lower}, faint)",
             "poses": poses
         }
-        
+
         # Only add head bone if specified (some models don't have a head)
         head_bone = config.get('head_bone', 'head')
         if head_bone and head_bone.lower() != 'none':
@@ -293,9 +294,9 @@ class CobblemonPackGenerator:
         else:
             # No head bone - canLook will be automatically set to false in species JSON
             pass
-        
+
         return result
-    
+
     def create_resolver_json(self, pokemon_name: str) -> Dict:
         """Create model resolver with correct texture paths"""
         pokemon_lower = pokemon_name.lower()
@@ -321,22 +322,22 @@ class CobblemonPackGenerator:
                 }
             ]
         }
-    
+
     def create_spawn_pool_json(self, pokemon_name: str, config: Dict) -> Dict:
         """Create spawn pool configuration"""
         pokemon_lower = pokemon_name.lower()
-        
+
         # Determine spawn context based on abilities
         context = "grounded"
         presets = ["natural"]
-        
+
         if config.get('can_swim', False):
             context = "submerged"
             presets = ["underwater"]
         elif config.get('can_fly', False):
             context = "grounded"  # Still spawns on ground but can fly
             presets = ["natural"]
-        
+
         return {
             "enabled": True,
             "neededInstalledMods": [],
@@ -353,67 +354,32 @@ class CobblemonPackGenerator:
                     "weight": config.get('spawn_weight', 10.0),
                     "condition": {
                         "canSeeSky": config.get('spawn_surface', True),
-                        "biomes": config.get('spawn_biomes', ['#minecraft:is_overworld']).split(',') if isinstance(config.get('spawn_biomes', '#minecraft:is_overworld'), str) else config.get('spawn_biomes', ['#minecraft:is_overworld'])
+                        "biomes": config.get('spawn_biomes', ['#minecraft:is_overworld']).split(',') if isinstance(
+                            config.get('spawn_biomes', '#minecraft:is_overworld'), str) else config.get('spawn_biomes',
+                                                                                                        ['#minecraft:is_overworld'])
                     }
                 }
             ]
         }
-    
-    def create_spawn_pool_json(self, pokemon_name: str, config: Dict) -> Dict:
-        """Create spawn pool configuration"""
-        pokemon_lower = pokemon_name.lower()
-        
-        # Determine spawn context based on abilities
-        context = "grounded"
-        presets = ["natural"]
-        
-        if config.get('can_swim', False):
-            context = "submerged"
-            presets = ["underwater"]
-        elif config.get('can_fly', False):
-            context = "grounded"  # Still spawns on ground but can fly
-            presets = ["natural"]
-        
-        return {
-            "enabled": True,
-            "neededInstalledMods": [],
-            "neededUninstalledMods": [],
-            "spawns": [
-                {
-                    "id": f"{pokemon_lower}-1",
-                    "pokemon": pokemon_lower,
-                    "presets": presets,
-                    "type": "pokemon",
-                    "context": context,
-                    "bucket": config.get('rarity', 'common'),
-                    "level": config.get('spawn_level', '5-30'),
-                    "weight": config.get('spawn_weight', 10.0),
-                    "condition": {
-                        "canSeeSky": config.get('spawn_surface', True),
-                        "biomes": config.get('spawn_biomes', ['#minecraft:is_overworld']).split(',') if isinstance(config.get('spawn_biomes', '#minecraft:is_overworld'), str) else config.get('spawn_biomes', ['#minecraft:is_overworld'])
-                    }
-                }
-            ]
-        }
-    
+
     def validate_animations(self, anim_file: Path, pokemon_name: str):
         """Validate animation file has required animations"""
         try:
             with open(anim_file, 'r') as f:
                 anim_data = json.load(f)
-            
+
             required_anims = ['ground_idle', 'ground_walk']
             found_anims = []
-            
+
             if 'animations' in anim_data:
                 for anim_key in anim_data['animations'].keys():
                     # Extract animation name from key like "animation.pokemon.ground_idle"
                     if '.' in anim_key:
                         anim_name = anim_key.split('.')[-1]
                         found_anims.append(anim_name)
-            
+
             missing = [anim for anim in required_anims if anim not in found_anims]
-            
+
             if missing:
                 print(f"\n⚠️  WARNING: Missing recommended animations: {', '.join(missing)}")
                 print(f"   Your Pokémon may not animate properly!")
@@ -422,38 +388,38 @@ class CobblemonPackGenerator:
                     print(f"   - animation.{pokemon_name}.{anim}")
             else:
                 print(f"  ✓ Animation validation passed")
-                
+
         except Exception as e:
             print(f"  ⚠️  Could not validate animations: {e}")
-    
+
     def organize_files(self, pokemon_name: str, files: Dict[str, List[Path]]):
         """Organize files into resource pack"""
         print(f"\n📦 Organizing files for {pokemon_name}...")
-        
+
         pokemon_lower = pokemon_name.lower()
-        
+
         # Validate animation file if present
         if files['animations']:
             self.validate_animations(files['animations'][0], pokemon_lower)
-        
+
         # Copy animations
         if files['animations']:
             dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_lower
             for anim_file in files['animations']:
-                dest_file = dest_dir / f"{pokemon_lower}.animation.json"  # Standard Bedrock format
+                dest_file = dest_dir / f"{pokemon_lower}.animation.json"  # Use .animation.json NOT _animation.json
                 shutil.copy2(anim_file, dest_file)
                 print(f"  ✓ Animation: {anim_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
-        
+
         # Copy models and fix identifier
         if files['models']:
             dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_lower
             for model_file in files['models']:
                 dest_file = dest_dir / f"{pokemon_lower}.geo.json"  # Use .geo.json NOT _geo.json
-                
+
                 # Read model and fix identifier if needed
                 with open(model_file, 'r') as f:
                     model_data = json.load(f)
-                
+
                 # Fix the identifier to match Cobblemon's requirements
                 if 'minecraft:geometry' in model_data:
                     for geom in model_data['minecraft:geometry']:
@@ -463,13 +429,13 @@ class CobblemonPackGenerator:
                             geom['description']['identifier'] = new_id
                             if old_id != new_id:
                                 print(f"  ℹ️  Fixed model identifier: {old_id} → {new_id}")
-                
+
                 # Write fixed model
                 with open(dest_file, 'w') as f:
                     json.dump(model_data, f, indent=2)
-                
+
                 print(f"  ✓ Model: {model_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
-        
+
         # Copy textures
         if files['textures']:
             dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "textures" / "pokemon" / pokemon_lower
@@ -482,15 +448,15 @@ class CobblemonPackGenerator:
                     dest_file = dest_dir / texture_file.name
                 shutil.copy2(texture_file, dest_file)
                 print(f"  ✓ Texture: {texture_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
-        
+
         print("✅ Files organized!")
-    
+
     def generate_pack_files(self, pokemon_name: str, config: Dict):
         """Generate all pack configuration files"""
         print(f"\n⚙️  Generating configuration files for {pokemon_name}...")
-        
+
         pokemon_lower = pokemon_name.lower()
-        
+
         # Resource pack.mcmeta (create if doesn't exist)
         resource_mcmeta = self.resource_pack_dir / "pack.mcmeta"
         if not resource_mcmeta.exists():
@@ -499,7 +465,7 @@ class CobblemonPackGenerator:
             print(f"  ✓ Resource pack.mcmeta created (format {self.RESOURCE_PACK_FORMAT})")
         else:
             print(f"  ℹ️  Resource pack.mcmeta already exists (keeping existing)")
-        
+
         # Behavior pack.mcmeta (create if doesn't exist)
         behavior_mcmeta = self.behavior_pack_dir / "pack.mcmeta"
         if not behavior_mcmeta.exists():
@@ -508,39 +474,41 @@ class CobblemonPackGenerator:
             print(f"  ✓ Behavior pack.mcmeta created (format {self.DATA_PACK_FORMAT})")
         else:
             print(f"  ℹ️  Behavior pack.mcmeta already exists (keeping existing)")
-        
+
         # Species definition
         species_file = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom" / f"{pokemon_lower}.json"
         with open(species_file, 'w') as f:
             json.dump(self.create_species_json(pokemon_name, config), f, indent=2)
         print(f"  ✓ Species definition")
-        
+
         # Poser
         poser_file = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "posers" / f"{pokemon_lower}.json"
         with open(poser_file, 'w') as f:
             json.dump(self.create_poser_json(pokemon_name, config), f, indent=2)
         print(f"  ✓ Poser configuration")
-        
+
         # Resolver
         resolver_file = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers" / f"0_{pokemon_lower}_base.json"
         with open(resolver_file, 'w') as f:
             json.dump(self.create_resolver_json(pokemon_name), f, indent=2)
         print(f"  ✓ Model resolver")
-        
+
         # Spawn pool
         spawn_file = self.behavior_pack_dir / "data" / "cobblemon" / "spawn_pool_world" / f"{pokemon_lower}.json"
         with open(spawn_file, 'w') as f:
             json.dump(self.create_spawn_pool_json(pokemon_name, config), f, indent=2)
         print(f"  ✓ Spawn pool")
-        
+
         # Language file - MERGE with existing if present
         lang_file = self.resource_pack_dir / "assets" / "cobblemon" / "lang" / "en_us.json"
         new_lang_data = {
             f"cobblemon.species.{pokemon_lower}.name": pokemon_name,
-            f"cobblemon.species.{pokemon_lower}.desc1": config.get('desc1', f"A mysterious Pokémon known as {pokemon_name}."),
-            f"cobblemon.species.{pokemon_lower}.desc2": config.get('desc2', "Customize this description in the language file!")
+            f"cobblemon.species.{pokemon_lower}.desc1": config.get('desc1',
+                                                                   f"A mysterious Pokémon known as {pokemon_name}."),
+            f"cobblemon.species.{pokemon_lower}.desc2": config.get('desc2',
+                                                                   "Customize this description in the language file!")
         }
-        
+
         # Load existing language file and merge
         if lang_file.exists():
             with open(lang_file, 'r') as f:
@@ -553,17 +521,17 @@ class CobblemonPackGenerator:
             with open(lang_file, 'w') as f:
                 json.dump(new_lang_data, f, indent=2)
             print(f"  ✓ Language file created")
-        
+
         print("✅ Configuration files generated!")
-    
+
     def cleanup_source_files(self, files: Dict[str, List[Path]]):
         """Remove source files after copying (NEVER deletes .py files or files outside base_dir)"""
         print("\n🧹 Cleaning up source files...")
-        
+
         files_to_remove = []
         for file_list in files.values():
             files_to_remove.extend(file_list)
-        
+
         for file in files_to_remove:
             # Safety checks - NEVER delete:
             # 1. Python files
@@ -572,54 +540,54 @@ class CobblemonPackGenerator:
             if file.suffix == '.py':
                 print(f"  ⚠️  Skipped (Python file): {file.name}")
                 continue
-            
+
             if not str(file).startswith(str(self.base_dir)):
                 print(f"  ⚠️  Skipped (outside base directory): {file.name}")
                 continue
-            
+
             if file.exists():
                 file.unlink()
                 print(f"  ✓ Removed: {file.name}")
-        
+
         print("✅ Cleanup complete!")
-    
+
     def show_current_pokemon(self):
         """Display all Pokémon currently in the packs"""
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("📋 CURRENT POKÉMON IN PACKS")
-        print(f"{'='*70}\n")
-        
+        print(f"{'=' * 70}\n")
+
         # Check if packs exist
         species_dir = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom"
-        
+
         if not species_dir.exists():
             print("❌ No packs found!")
             print(f"   Location checked: {species_dir}")
             print("\n💡 Generate your first Pokémon to create the packs!")
             return
-        
+
         # Find all species files
         species_files = list(species_dir.glob("*.json"))
-        
+
         if not species_files:
             print("❌ No Pokémon found in packs!")
             print(f"   Location: {species_dir}")
             return
-        
+
         print(f"Found {len(species_files)} Pokémon:\n")
-        
+
         # Parse and display each Pokémon
         pokemon_list = []
         for species_file in sorted(species_files):
             try:
                 with open(species_file, 'r') as f:
                     data = json.load(f)
-                
+
                 name = data.get('name', species_file.stem).capitalize()
                 pokedex_num = data.get('nationalPokedexNumber', '???')
                 primary_type = data.get('primaryType', '???').upper()
                 secondary_type = data.get('secondaryType', '')
-                
+
                 # Get stats
                 stats = data.get('baseStats', {})
                 hp = stats.get('hp', 0)
@@ -629,14 +597,14 @@ class CobblemonPackGenerator:
                 spdef = stats.get('special_defence', 0)
                 speed = stats.get('speed', 0)
                 total = hp + atk + defe + spatk + spdef + speed
-                
+
                 # Check if legendary
                 labels = data.get('labels', [])
                 is_legendary = 'legendary' in labels
-                
+
                 # Get catch rate
                 catch_rate = data.get('catchRate', 45)
-                
+
                 pokemon_list.append({
                     'name': name,
                     'number': pokedex_num,
@@ -652,35 +620,36 @@ class CobblemonPackGenerator:
                     'legendary': is_legendary,
                     'catch_rate': catch_rate
                 })
-                
+
             except Exception as e:
                 print(f"⚠️  Error reading {species_file.name}: {e}")
-        
+
         # Display in table format
         print(f"{'#':<6} {'Name':<15} {'Type':<20} {'BST':<6} {'Legendary':<10} {'Catch':<6}")
         print("-" * 70)
-        
+
         for p in sorted(pokemon_list, key=lambda x: x['number']):
             type_str = p['primary_type']
             if p['secondary_type']:
                 type_str += f"/{p['secondary_type'].upper()}"
-            
+
             legendary_mark = "⭐ YES" if p['legendary'] else "No"
-            
-            print(f"#{p['number']:<5} {p['name']:<15} {type_str:<20} {p['total']:<6} {legendary_mark:<10} {p['catch_rate']:<6}")
-        
+
+            print(
+                f"#{p['number']:<5} {p['name']:<15} {type_str:<20} {p['total']:<6} {legendary_mark:<10} {p['catch_rate']:<6}")
+
         # Summary stats
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print(f"📊 SUMMARY:")
         print(f"   Total Pokémon: {len(pokemon_list)}")
         legendary_count = sum(1 for p in pokemon_list if p['legendary'])
         print(f"   Legendary: {legendary_count}")
         print(f"   Regular: {len(pokemon_list) - legendary_count}")
-        
+
         # Average BST
         avg_bst = sum(p['total'] for p in pokemon_list) // len(pokemon_list) if pokemon_list else 0
         print(f"   Average BST: {avg_bst}")
-        
+
         # Type distribution
         type_counts = {}
         for p in pokemon_list:
@@ -689,150 +658,33 @@ class CobblemonPackGenerator:
             if p['secondary_type']:
                 secondary = p['secondary_type'].upper()
                 type_counts[secondary] = type_counts.get(secondary, 0) + 1
-        
+
         print(f"\n   Type Distribution:")
         for ptype, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
             print(f"      {ptype}: {count}")
-        
-        print(f"\n{'='*70}")
+
+        print(f"\n{'=' * 70}")
         print(f"📁 Pack Locations:")
         print(f"   Resource: {self.resource_pack_dir}")
         print(f"   Behavior: {self.behavior_pack_dir}")
-        print(f"{'='*70}\n")
-    
-    def show_current_pokemon(self):
-        """Display all Pokémon currently in the packs"""
-        print(f"\n{'='*70}")
-        print("📋 CURRENT POKÉMON IN PACKS")
-        print(f"{'='*70}\n")
-        
-        # Check if packs exist
-        species_dir = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom"
-        
-        if not species_dir.exists():
-            print("❌ No packs found!")
-            print(f"   Location checked: {species_dir}")
-            print("\n💡 Generate your first Pokémon to create the packs!")
-            return
-        
-        # Find all species files
-        species_files = list(species_dir.glob("*.json"))
-        
-        if not species_files:
-            print("❌ No Pokémon found in packs!")
-            print(f"   Location: {species_dir}")
-            return
-        
-        print(f"Found {len(species_files)} Pokémon:\n")
-        
-        # Parse and display each Pokémon
-        pokemon_list = []
-        for species_file in sorted(species_files):
-            try:
-                with open(species_file, 'r') as f:
-                    data = json.load(f)
-                
-                name = data.get('name', species_file.stem).capitalize()
-                pokedex_num = data.get('nationalPokedexNumber', '???')
-                primary_type = data.get('primaryType', '???').upper()
-                secondary_type = data.get('secondaryType', '')
-                
-                # Get stats
-                stats = data.get('baseStats', {})
-                hp = stats.get('hp', 0)
-                atk = stats.get('attack', 0)
-                defe = stats.get('defence', 0)
-                spatk = stats.get('special_attack', 0)
-                spdef = stats.get('special_defence', 0)
-                speed = stats.get('speed', 0)
-                total = hp + atk + defe + spatk + spdef + speed
-                
-                # Check if legendary
-                labels = data.get('labels', [])
-                is_legendary = 'legendary' in labels
-                
-                # Get catch rate
-                catch_rate = data.get('catchRate', 45)
-                
-                pokemon_list.append({
-                    'name': name,
-                    'number': pokedex_num,
-                    'primary_type': primary_type,
-                    'secondary_type': secondary_type,
-                    'total': total,
-                    'hp': hp,
-                    'atk': atk,
-                    'def': defe,
-                    'spatk': spatk,
-                    'spdef': spdef,
-                    'speed': speed,
-                    'legendary': is_legendary,
-                    'catch_rate': catch_rate
-                })
-                
-            except Exception as e:
-                print(f"⚠️  Error reading {species_file.name}: {e}")
-        
-        # Display in table format
-        print(f"{'#':<6} {'Name':<15} {'Type':<20} {'BST':<6} {'Legendary':<10} {'Catch':<6}")
-        print("-" * 70)
-        
-        for p in sorted(pokemon_list, key=lambda x: x['number']):
-            type_str = p['primary_type']
-            if p['secondary_type']:
-                type_str += f"/{p['secondary_type'].upper()}"
-            
-            legendary_mark = "⭐ YES" if p['legendary'] else "No"
-            
-            print(f"#{p['number']:<5} {p['name']:<15} {type_str:<20} {p['total']:<6} {legendary_mark:<10} {p['catch_rate']:<6}")
-        
-        # Summary stats
-        print("\n" + "="*70)
-        print(f"📊 SUMMARY:")
-        print(f"   Total Pokémon: {len(pokemon_list)}")
-        legendary_count = sum(1 for p in pokemon_list if p['legendary'])
-        print(f"   Legendary: {legendary_count}")
-        print(f"   Regular: {len(pokemon_list) - legendary_count}")
-        
-        # Average BST
-        avg_bst = sum(p['total'] for p in pokemon_list) // len(pokemon_list) if pokemon_list else 0
-        print(f"   Average BST: {avg_bst}")
-        
-        # Type distribution
-        type_counts = {}
-        for p in pokemon_list:
-            primary = p['primary_type']
-            type_counts[primary] = type_counts.get(primary, 0) + 1
-            if p['secondary_type']:
-                secondary = p['secondary_type'].upper()
-                type_counts[secondary] = type_counts.get(secondary, 0) + 1
-        
-        print(f"\n   Type Distribution:")
-        for ptype, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
-            print(f"      {ptype}: {count}")
-        
-        print(f"\n{'='*70}")
-        print(f"📁 Pack Locations:")
-        print(f"   Resource: {self.resource_pack_dir}")
-        print(f"   Behavior: {self.behavior_pack_dir}")
-        print(f"{'='*70}\n")
-    
+        print(f"{'=' * 70}\n")
+
     def edit_pokemon(self, pokemon_name: str, args):
         """Edit an existing Pokémon's stats and properties"""
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"✏️  EDITING POKÉMON: {pokemon_name.upper()}")
-        print(f"{'='*70}\n")
-        
+        print(f"{'=' * 70}\n")
+
         pokemon_lower = pokemon_name.lower()
         species_file = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom" / f"{pokemon_lower}.json"
-        
+
         # Check if Pokémon exists
         if not species_file.exists():
             print(f"❌ Pokémon '{pokemon_name}' not found!")
             print(f"   Looked for: {species_file}")
             print(f"\n💡 Use --show-current-pokemon to see all Pokémon")
             return
-        
+
         # Load existing data
         try:
             with open(species_file, 'r') as f:
@@ -840,7 +692,7 @@ class CobblemonPackGenerator:
         except Exception as e:
             print(f"❌ Error reading {pokemon_name}: {e}")
             return
-        
+
         print(f"📖 Current Stats for {pokemon_name.capitalize()}:")
         current_stats = data.get('baseStats', {})
         current_hp = current_stats.get('hp', 0)
@@ -850,7 +702,7 @@ class CobblemonPackGenerator:
         current_spdef = current_stats.get('special_defence', 0)
         current_speed = current_stats.get('speed', 0)
         current_total = current_hp + current_atk + current_def + current_spatk + current_spdef + current_speed
-        
+
         print(f"   HP: {current_hp}")
         print(f"   Attack: {current_atk}")
         print(f"   Defence: {current_def}")
@@ -858,51 +710,52 @@ class CobblemonPackGenerator:
         print(f"   Sp. Defence: {current_spdef}")
         print(f"   Speed: {current_speed}")
         print(f"   TOTAL BST: {current_total}")
-        print(f"   Type: {data.get('primaryType', 'normal').upper()}/{data.get('secondaryType', '').upper() if data.get('secondaryType') else 'None'}")
+        print(
+            f"   Type: {data.get('primaryType', 'normal').upper()}/{data.get('secondaryType', '').upper() if data.get('secondaryType') else 'None'}")
         print(f"   Catch Rate: {data.get('catchRate', 45)}")
         print(f"   Legendary: {'⭐ YES' if 'legendary' in data.get('labels', []) else 'No'}")
-        
+
         # Track what was changed
         changes_made = []
-        
-        # Update stats if provided
-        if args.hp is not None and args.hp != 50:  # 50 is default
+
+        # Update stats if provided (compare against current value so setting to 50 works)
+        if args.hp is not None and args.hp != current_hp:
             data['baseStats']['hp'] = args.hp
             changes_made.append(f"HP: {current_hp} → {args.hp}")
-        
-        if args.attack is not None and args.attack != 50:
+
+        if args.attack is not None and args.attack != current_atk:
             data['baseStats']['attack'] = args.attack
             changes_made.append(f"Attack: {current_atk} → {args.attack}")
-        
-        if args.defence is not None and args.defence != 50:
+
+        if args.defence is not None and args.defence != current_def:
             data['baseStats']['defence'] = args.defence
             changes_made.append(f"Defence: {current_def} → {args.defence}")
-        
-        if args.special_attack is not None and args.special_attack != 50:
+
+        if args.special_attack is not None and args.special_attack != current_spatk:
             data['baseStats']['special_attack'] = args.special_attack
             changes_made.append(f"Sp. Attack: {current_spatk} → {args.special_attack}")
-        
-        if args.special_defence is not None and args.special_defence != 50:
+
+        if args.special_defence is not None and args.special_defence != current_spdef:
             data['baseStats']['special_defence'] = args.special_defence
             changes_made.append(f"Sp. Defence: {current_spdef} → {args.special_defence}")
-        
-        if args.speed is not None and args.speed != 50:
+
+        if args.speed is not None and args.speed != current_speed:
             data['baseStats']['speed'] = args.speed
             changes_made.append(f"Speed: {current_speed} → {args.speed}")
-        
+
         # Update types if provided
-        if args.primary_type and args.primary_type != 'normal':
+        if args.primary_type and args.primary_type != data.get('primaryType', 'normal'):
             old_type = data.get('primaryType', 'normal')
             data['primaryType'] = args.primary_type
             changes_made.append(f"Primary Type: {old_type} → {args.primary_type}")
-        
+
         if args.secondary_type:
             old_type = data.get('secondaryType', 'None')
             data['secondaryType'] = args.secondary_type
             changes_made.append(f"Secondary Type: {old_type} → {args.secondary_type}")
-        
+
         # Update rarity
-        if args.rarity and args.rarity != 'common':
+        if args.rarity:
             # Update spawn file
             spawn_file = self.behavior_pack_dir / "data" / "cobblemon" / "spawn_pool_world" / f"{pokemon_lower}.json"
             if spawn_file.exists():
@@ -916,7 +769,7 @@ class CobblemonPackGenerator:
                     changes_made.append(f"Rarity: {old_rarity} → {args.rarity}")
                 except Exception as e:
                     print(f"⚠️  Could not update spawn rarity: {e}")
-        
+
         # Update legendary status
         if args.legendary:
             if 'legendary' not in data.get('labels', []):
@@ -925,22 +778,36 @@ class CobblemonPackGenerator:
                 data['baseExperienceYield'] = 290
                 data['baseFriendship'] = 0
                 changes_made.append("Made legendary (catchRate=3, baseExp=290)")
-        
+
+        # Update moves if provided
+        if args.moves:
+            new_moves = [m.strip() for m in args.moves.split(',')]
+            old_moves = data.get('moves', [])
+            data['moves'] = new_moves
+            changes_made.append(f"Moves: {len(old_moves)} move(s) → {len(new_moves)} move(s)")
+
+        # Update abilities if provided
+        if args.abilities:
+            new_abilities = [a.strip() for a in args.abilities.split(',')]
+            old_abilities = data.get('abilities', [])
+            data['abilities'] = new_abilities
+            changes_made.append(f"Abilities: {old_abilities} → {new_abilities}")
+
         # Save if changes were made
         if changes_made:
             print(f"\n✏️  Changes to apply:")
             for change in changes_made:
                 print(f"   • {change}")
-            
+
             # Calculate new BST
             new_stats = data.get('baseStats', {})
-            new_total = (new_stats.get('hp', 0) + new_stats.get('attack', 0) + 
-                        new_stats.get('defence', 0) + new_stats.get('special_attack', 0) + 
-                        new_stats.get('special_defence', 0) + new_stats.get('speed', 0))
-            
+            new_total = (new_stats.get('hp', 0) + new_stats.get('attack', 0) +
+                         new_stats.get('defence', 0) + new_stats.get('special_attack', 0) +
+                         new_stats.get('special_defence', 0) + new_stats.get('speed', 0))
+
             if new_total != current_total:
                 print(f"\n   📊 BST Change: {current_total} → {new_total}")
-            
+
             # Save the file
             try:
                 with open(species_file, 'w') as f:
@@ -954,56 +821,56 @@ class CobblemonPackGenerator:
             print(f"   Use --hp, --attack, --defence, etc. to make changes")
             print(f"\n💡 Example:")
             print(f"   python script.py --edit {pokemon_name} --hp 80 --attack 70 --rarity rare")
-        
-        print(f"\n{'='*70}\n")
-    
+
+        print(f"\n{'=' * 70}\n")
+
     def generate_pokemon(self, pokemon_name: str, config: Dict, cleanup: bool = True):
         """Main function to generate Pokémon packs"""
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"🎮 Cobblemon Pack Generator - Creating {pokemon_name.upper()}")
-        print(f"{'='*70}")
-        
+        print(f"{'=' * 70}")
+
         # Important warning
         print(f"\n⚠️  IMPORTANT: Keep this Python script OUTSIDE of:")
         print(f"   {self.base_dir}")
         print(f"   (Only put your .geo.json, .animation.json, .png files there!)")
-        
+
         # Find files
         print(f"\n🔍 Scanning {self.base_dir} for files...")
         files = self.find_files_in_base_dir()
-        
+
         print(f"\nFound:")
         print(f"  • {len(files['animations'])} animation file(s)")
         print(f"  • {len(files['models'])} model file(s)")
         print(f"  • {len(files['textures'])} texture file(s)")
-        
+
         if not any(files[key] for key in ['animations', 'models', 'textures']):
             print("\n⚠️  No valid files found! Please add files to:")
             print(f"    {self.base_dir}")
             return False
-        
+
         # Setup directories
         self.setup_directories(pokemon_name)
-        
+
         # Organize files
         self.organize_files(pokemon_name, files)
-        
+
         # Generate configuration files
         self.generate_pack_files(pokemon_name, config)
-        
+
         # Info message about head bone
         if config.get('head_bone', 'head').lower() == 'none':
             print(f"\nℹ️  Note: No head bone specified")
             print(f"   - Poser will not include 'head' field")
             print(f"   - Species 'canLook' automatically set to false")
-        
+
         # Cleanup if requested
         if cleanup:
             self.cleanup_source_files(files)
-        
-        print(f"\n{'='*70}")
+
+        print(f"\n{'=' * 70}")
         print("✨ PACK GENERATION COMPLETE! ✨")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"\n📍 Your packs are at:")
         print(f"   Resource Pack: {self.resource_pack_dir}")
         print(f"   Behavior Pack: {self.behavior_pack_dir}")
@@ -1024,8 +891,8 @@ class CobblemonPackGenerator:
         print(f"   - Model identifier matches Pokémon name")
         print(f"   - Both packs are installed AND enabled")
         print(f"   - Run /reload after installing")
-        print(f"\n{'='*70}\n")
-        
+        print(f"\n{'=' * 70}\n")
+
         return True
 
 
@@ -1038,31 +905,31 @@ def main():
 Examples:
   # Basic Pokémon
   python cobblemon_pack_generator.py --name Flamebird --number 999
-  
+
   # With custom stats and type
   python cobblemon_pack_generator.py --name Aquadragon --number 1000 \\
     --primary-type water --secondary-type dragon \\
     --hp 100 --attack 80 --defence 90
-  
+
   # With moves and abilities
   python cobblemon_pack_generator.py --name Earthgolem --number 1001 \\
     --moves "1:tackle,7:rockthrow,20:earthquake,tm:stoneedge" \\
     --abilities "sturdy,h:sandforce"
-  
+
   # Flying/Swimming Pokémon
   python cobblemon_pack_generator.py --name Skywhale --number 1002 \\
     --can-fly --can-swim --breathe-underwater
         """
     )
-    
+
     # Required arguments (unless using --show-current-pokemon)
     parser.add_argument('--name', type=str, help='Pokémon name')
     parser.add_argument('--number', type=int, help='Pokédex number')
-    
+
     # Type arguments
     parser.add_argument('--primary-type', type=str, default='normal', help='Primary type (default: normal)')
     parser.add_argument('--secondary-type', type=str, help='Secondary type (optional)')
-    
+
     # Stats
     parser.add_argument('--hp', type=int, default=50, help='HP stat (default: 50)')
     parser.add_argument('--attack', type=int, default=50, help='Attack stat (default: 50)')
@@ -1070,61 +937,63 @@ Examples:
     parser.add_argument('--special-attack', type=int, default=50, help='Special Attack (default: 50)')
     parser.add_argument('--special-defence', type=int, default=50, help='Special Defence (default: 50)')
     parser.add_argument('--speed', type=int, default=50, help='Speed stat (default: 50)')
-    
+
     # Moves and abilities
     parser.add_argument('--moves', type=str, help='Comma-separated moves (e.g. "1:tackle,7:ember,tm:flamethrower")')
     parser.add_argument('--abilities', type=str, help='Comma-separated abilities (e.g. "blaze,h:solar_power")')
-    
+
     # Physical properties
     parser.add_argument('--height', type=int, default=10, help='Height in decimeters (default: 10)')
     parser.add_argument('--weight', type=int, default=100, help='Weight in hectograms (default: 100)')
-    
+
     # Movement abilities
     parser.add_argument('--can-fly', action='store_true', help='Pokémon can fly')
     parser.add_argument('--can-swim', action='store_true', help='Pokémon can swim')
     parser.add_argument('--breathe-underwater', action='store_true', help='Can breathe underwater')
     parser.add_argument('--no-look', action='store_true', help='Pokémon cannot look around (canLook=false)')
-    
+
     # Spawn configuration
-    parser.add_argument('--rarity', type=str, default='common', choices=['common', 'uncommon', 'rare', 'ultra-rare'], help='Spawn rarity')
+    parser.add_argument('--rarity', type=str, default='common', choices=['common', 'uncommon', 'rare', 'ultra-rare'],
+                        help='Spawn rarity')
     parser.add_argument('--spawn-level', type=str, default='5-30', help='Spawn level range (e.g. "10-40")')
-    parser.add_argument('--spawn-biomes', type=str, default='#minecraft:is_overworld', help='Spawn biomes (comma-separated)')
-    
+    parser.add_argument('--spawn-biomes', type=str, default='#minecraft:is_overworld',
+                        help='Spawn biomes (comma-separated)')
+
     # Descriptions
     parser.add_argument('--desc1', type=str, help='First Pokédex entry')
     parser.add_argument('--desc2', type=str, help='Second Pokédex entry')
-    
+
     # Legendary/Mythical
-    parser.add_argument('--legendary', action='store_true', help='Make this a legendary Pokémon (sets catchRate=3, baseExp=290, adds legendary label)')
-    
+    parser.add_argument('--legendary', action='store_true',
+                        help='Make this a legendary Pokémon (sets catchRate=3, baseExp=290, adds legendary label)')
+
     # Model customization
-    parser.add_argument('--head-bone', type=str, default='head', help='Head bone name (use "none" if model has no head)')
-    
+    parser.add_argument('--head-bone', type=str, default='head',
+                        help='Head bone name (use "none" if model has no head)')
+
     # Other options
     parser.add_argument('--downloads', type=str, help='Custom Downloads path')
     parser.add_argument('--no-cleanup', action='store_true', help='Keep source files')
     parser.add_argument('--show-current-pokemon', action='store_true', help='Show all Pokémon currently in the packs')
     parser.add_argument('--edit', type=str, help='Edit an existing Pokémon (use Pokémon name)')
-    
+
     args = parser.parse_args()
-    
-    # Create generator
-    generator = CobblemonPackGenerator(downloads_path=args.downloads)
-    
+
+
     # Handle --show-current-pokemon command
     if args.show_current_pokemon:
         generator.show_current_pokemon()
         return
-    
+
     # Handle --edit command
     if args.edit:
         generator.edit_pokemon(args.edit, args)
         return
-    
+
     # Validate required arguments when creating a Pokémon
     if not args.name or not args.number:
         parser.error("--name and --number are required when creating a Pokémon")
-    
+
     # Build configuration dictionary
     config = {
         'pokedex_number': args.number,
@@ -1152,35 +1021,35 @@ Examples:
         'head_bone': args.head_bone,
         'legendary': args.legendary,
     }
-    
+
     # Apply legendary settings if --legendary flag is used
     if args.legendary:
-        config['catch_rate'] = 3           # Hard to catch (like Mewtwo)
-        config['base_exp'] = 290           # High experience yield
+        config['catch_rate'] = 3  # Hard to catch (like Mewtwo)
+        config['base_exp'] = 290  # High experience yield
         config['labels'] = ['custom', 'legendary']
-        config['friendship'] = 0           # Starts unfriendly
-        config['spawn_weight'] = 0.05      # Extremely rare spawn
-        
+        config['friendship'] = 0  # Starts unfriendly
+        config['spawn_weight'] = 0.05  # Extremely rare spawn
+
         # Auto-set ultra-rare if not specified
         if args.rarity == 'common':  # Default value
             config['rarity'] = 'ultra-rare'
-        
+
         print("\n⭐ Legendary mode activated!")
         print("   - Catch rate: 3 (very hard)")
         print("   - Base EXP: 290 (legendary level)")
         print("   - Spawn weight: 0.05 (extremely rare)")
         print("   - Labels: custom, legendary")
-    
+
     # Create generator
     generator = CobblemonPackGenerator(downloads_path=args.downloads)
-    
+
     # Generate the packs
     success = generator.generate_pokemon(
         pokemon_name=args.name,
         config=config,
         cleanup=not args.no_cleanup
     )
-    
+
     if not success:
         exit(1)
 
