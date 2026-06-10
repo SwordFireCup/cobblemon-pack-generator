@@ -470,16 +470,37 @@ class CobblemonPackGenerator:
 
                 print(f"  ✓ Model: {model_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
 
-        # Copy textures
+        # Copy textures (detect shiny by filename rather than by directory order)
         if files['textures']:
             dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "textures" / "pokemon" / pokemon_lower
-            for idx, texture_file in enumerate(files['textures']):
-                if idx == 0:
-                    dest_file = dest_dir / f"{pokemon_lower}.png"
-                elif idx == 1:
-                    dest_file = dest_dir / f"{pokemon_lower}_shiny.png"
-                else:
-                    dest_file = dest_dir / texture_file.name
+            shiny_files = [t for t in files['textures'] if 'shiny' in t.name.lower()]
+            normal_files = [t for t in files['textures'] if 'shiny' not in t.name.lower()]
+
+            # Fallback so the Pokémon always gets a base texture
+            if not normal_files:
+                normal_files = shiny_files
+
+            copied = set()
+
+            # Base (non-shiny) texture
+            base_src = normal_files[0]
+            base_dest = dest_dir / f"{pokemon_lower}.png"
+            shutil.copy2(base_src, base_dest)
+            copied.add(base_src)
+            print(f"  ✓ Texture: {base_src.name} → {base_dest.relative_to(self.resource_pack_dir)}")
+
+            # Shiny texture (only if a distinct shiny file exists)
+            if shiny_files and shiny_files[0] not in copied:
+                shiny_dest = dest_dir / f"{pokemon_lower}_shiny.png"
+                shutil.copy2(shiny_files[0], shiny_dest)
+                copied.add(shiny_files[0])
+                print(f"  ✓ Texture: {shiny_files[0].name} → {shiny_dest.relative_to(self.resource_pack_dir)}")
+
+            # Any remaining textures keep their original names
+            for texture_file in files['textures']:
+                if texture_file in copied:
+                    continue
+                dest_file = dest_dir / texture_file.name
                 shutil.copy2(texture_file, dest_file)
                 print(f"  ✓ Texture: {texture_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
 
@@ -965,12 +986,12 @@ Examples:
     parser.add_argument('--secondary-type', type=str, help='Secondary type (optional)')
 
     # Stats
-    parser.add_argument('--hp', type=int, default=50, help='HP stat (default: 50)')
-    parser.add_argument('--attack', type=int, default=50, help='Attack stat (default: 50)')
-    parser.add_argument('--defence', type=int, default=50, help='Defence stat (default: 50)')
-    parser.add_argument('--special-attack', type=int, default=50, help='Special Attack (default: 50)')
-    parser.add_argument('--special-defence', type=int, default=50, help='Special Defence (default: 50)')
-    parser.add_argument('--speed', type=int, default=50, help='Speed stat (default: 50)')
+    parser.add_argument('--hp', type=int, default=None, help='HP stat (default: 50 on create)')
+    parser.add_argument('--attack', type=int, default=None, help='Attack stat (default: 50 on create)')
+    parser.add_argument('--defence', type=int, default=None, help='Defence stat (default: 50 on create)')
+    parser.add_argument('--special-attack', type=int, default=None, help='Special Attack (default: 50 on create)')
+    parser.add_argument('--special-defence', type=int, default=None, help='Special Defence (default: 50 on create)')
+    parser.add_argument('--speed', type=int, default=None, help='Speed stat (default: 50 on create)')
 
     # Moves and abilities
     parser.add_argument('--moves', type=str, help='Comma-separated moves (e.g. "1:tackle,7:ember,tm:flamethrower")')
@@ -1021,6 +1042,8 @@ Examples:
 
     args = parser.parse_args()
 
+    # Create generator (needed by --show-current-pokemon, --edit, and creation)
+    generator = CobblemonPackGenerator(downloads_path=args.downloads)
 
     # Handle --show-current-pokemon command
     if args.show_current_pokemon:
@@ -1041,12 +1064,12 @@ Examples:
         'pokedex_number': args.number,
         'primary_type': args.primary_type,
         'secondary_type': args.secondary_type,
-        'hp': args.hp,
-        'attack': args.attack,
-        'defence': args.defence,
-        'special_attack': args.special_attack,
-        'special_defence': args.special_defence,
-        'speed': args.speed,
+        'hp': args.hp if args.hp is not None else 50,
+        'attack': args.attack if args.attack is not None else 50,
+        'defence': args.defence if args.defence is not None else 50,
+        'special_attack': args.special_attack if args.special_attack is not None else 50,
+        'special_defence': args.special_defence if args.special_defence is not None else 50,
+        'speed': args.speed if args.speed is not None else 50,
         'moves': args.moves,
         'abilities': args.abilities,
         'height': args.height,
@@ -1086,9 +1109,6 @@ Examples:
         print("   - Base EXP: 290 (legendary level)")
         print("   - Spawn weight: 0.05 (extremely rare)")
         print("   - Labels: custom, legendary")
-
-    # Create generator
-    generator = CobblemonPackGenerator(downloads_path=args.downloads)
 
     # Generate the packs
     success = generator.generate_pokemon(
