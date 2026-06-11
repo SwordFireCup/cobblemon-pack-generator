@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
 """
-Cobblemon Pack Error Checker (v2.0)
+Cobblemon Pack Error Checker
 Validates all files in your Cobblemon pack for common errors
-NOW WITH: Filename validation, bone matching, poser validation, and more!
+
+v2.1 changelog (2026-06-10):
+  - FIX: missing comma merged 'splishysplash'/'spore' in COMMON_MOVES
+  - NEW: resolver texture/poser paths verified against real files
+  - NEW: poser bedrock(name, anim) refs cross-checked (wrong name, missing anim)
+  - NEW: texture dimensions vs model UV size (IHDR parse, no PIL needed)
+  - NEW: evolution structure + target validation (incl. missing level reqs)
+  - NEW: lang file completeness (.name + declared pokedex keys)
+  - NEW: species_additions validation (JSON, target, evolutions, moves footgun)
+  - NEW: orphan file detection (posers/resolvers/models/anims/textures/spawns)
+  - NEW: spawn deep checks (pokemon-matches-filename, bucket, weight, level range)
+  - NEW: pack.mcmeta validation (formats 34/48 for 1.21.1)
+  - NEW: experienceGroup + maleRatio field validation
+  - NEW: --version flag
+v2.2 changelog (2026-06-11):
+  - CHANGE: emoji-free console output for Windows terminal compatibility
 """
+
+CHECKER_VERSION = "2.2"
 
 import json
 import os
@@ -426,9 +443,9 @@ class CobblemonPackChecker:
     def check_all(self):
         """Run all checks"""
         print(f"\n{'=' * 70}")
-        print("🔍 COBBLEMON PACK ERROR CHECKER v2.1")
+        print(f"COBBLEMON PACK ERROR CHECKER v{CHECKER_VERSION}")
         print(f"{'=' * 70}")
-        print("✨ NEW in v2.1:")
+        print("Checks include:")
         print("   • Resolver texture/poser path verification")
         print("   • Poser → animation cross-checking")
         print("   • Texture dimensions vs model UV size")
@@ -438,7 +455,7 @@ class CobblemonPackChecker:
         print("   • Orphan file detection")
         print("   • Spawn file deep checks + pack.mcmeta validation")
         print(f"{'=' * 70}\n")
-        print(f"📁 Checking pack: {self.pack_path}\n")
+        print(f"Checking pack: {self.pack_path}\n")
 
         # Check pack structure
         self.check_pack_structure()
@@ -459,7 +476,7 @@ class CobblemonPackChecker:
             self.check_pokemon(pokemon_name)
 
         # Pack-level cross-checks (need all species data collected first)
-        print("🔗 Running pack-level cross-checks...")
+        print("Running pack-level cross-checks...")
         self.check_evolution_targets()
         self.check_lang_file(pokemon_list)
         self.check_species_additions()
@@ -471,14 +488,14 @@ class CobblemonPackChecker:
 
     def check_pack_structure(self):
         """Check basic pack structure"""
-        print("📦 Checking pack structure...")
+        print("Checking pack structure...")
 
         # Check resource pack
         resource_pack = self.pack_path / "resource_pack"
         if not resource_pack.exists():
             self.errors.append("Missing resource_pack folder!")
         else:
-            self.info.append("✓ resource_pack folder exists")
+            self.info.append("[OK] resource_pack folder exists")
             self._check_mcmeta(resource_pack / "pack.mcmeta", "resource_pack", expected_format=34)
 
         # Check behavior pack
@@ -486,7 +503,7 @@ class CobblemonPackChecker:
         if not behavior_pack.exists():
             self.errors.append("Missing behavior_pack folder!")
         else:
-            self.info.append("✓ behavior_pack folder exists")
+            self.info.append("[OK] behavior_pack folder exists")
             self._check_mcmeta(behavior_pack / "pack.mcmeta", "behavior_pack", expected_format=48)
 
         print()
@@ -510,7 +527,7 @@ class CobblemonPackChecker:
                 self.warnings.append(
                     f"{pack_label}: pack_format is {fmt}, expected {expected_format} for Minecraft 1.21.1")
             else:
-                self.info.append(f"✓ {pack_label}/pack.mcmeta valid (format {fmt})")
+                self.info.append(f"[OK] {pack_label}/pack.mcmeta valid (format {fmt})")
             if "description" not in pack:
                 self.warnings.append(f"{pack_label}: pack.mcmeta has no 'description'")
         except json.JSONDecodeError as e:
@@ -532,20 +549,20 @@ class CobblemonPackChecker:
 
     def check_pokemon(self, pokemon_name: str):
         """Check all files for a specific Pokemon"""
-        print(f"🔍 Checking {pokemon_name.upper()}...")
+        print(f"Checking {pokemon_name.upper()}...")
 
         errors_found = False
 
         # CRITICAL: Check for case sensitivity issues
         if pokemon_name != pokemon_name.lower():
-            self.errors.append(f"{pokemon_name}: ❌ CRITICAL! Pokemon name has uppercase letters")
+            self.errors.append(f"{pokemon_name}: CRITICAL! Pokemon name has uppercase letters")
             self.errors.append(f"  All Pokemon names must be lowercase: '{pokemon_name.lower()}'")
             errors_found = True
 
         # CRITICAL: Check for special characters
         import re
         if not re.match(r'^[a-z0-9_]+$', pokemon_name):
-            self.errors.append(f"{pokemon_name}: ❌ CRITICAL! Pokemon name contains invalid characters")
+            self.errors.append(f"{pokemon_name}: CRITICAL! Pokemon name contains invalid characters")
             self.errors.append(f"  Only lowercase letters, numbers, and underscores allowed")
             errors_found = True
 
@@ -578,9 +595,9 @@ class CobblemonPackChecker:
             errors_found = True
 
         if not errors_found:
-            print(f"   ✅ All checks passed!\n")
+            print(f"   [OK] All checks passed!\n")
         else:
-            print(f"   ⚠️  Issues found (see below)\n")
+            print(f"   WARNING: Issues found (see below)\n")
 
     def check_species_file(self, pokemon_name: str) -> bool:
         """Check species JSON file"""
@@ -604,7 +621,7 @@ class CobblemonPackChecker:
             if "nationalPokedexNumber" in data:
                 dex_num = data["nationalPokedexNumber"]
                 if dex_num in self.dex_numbers:
-                    self.errors.append(f"{pokemon_name}: ❌ DUPLICATE DEX NUMBER #{dex_num}!")
+                    self.errors.append(f"{pokemon_name}: ERROR: DUPLICATE DEX NUMBER #{dex_num}!")
                     self.errors.append(f"  Already used by: {self.dex_numbers[dex_num]}")
                 else:
                     self.dex_numbers[dex_num] = pokemon_name
@@ -812,7 +829,7 @@ class CobblemonPackChecker:
         wrong_filename = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_name / f"{pokemon_name}_geo.json"
         if wrong_filename.exists():
             self.errors.append(
-                f"{pokemon_name}: ❌ CRITICAL BUG! Model file uses UNDERSCORES: '{pokemon_name}_geo.json'")
+                f"{pokemon_name}: ERROR: CRITICAL BUG! Model file uses UNDERSCORES: '{pokemon_name}_geo.json'")
             self.errors.append(f"  Must use DOTS: '{pokemon_name}.geo.json' (rename the file!)")
             return False
 
@@ -833,7 +850,7 @@ class CobblemonPackChecker:
 
                     # Check if identifier is completely wrong (different pokemon)
                     if identifier and not identifier.endswith(pokemon_name):
-                        self.errors.append(f"{pokemon_name}: ❌ Model identifier '{identifier}' doesn't match filename!")
+                        self.errors.append(f"{pokemon_name}: ERROR: Model identifier '{identifier}' doesn't match filename!")
                         self.errors.append(f"  Expected: '{expected}'")
                     elif identifier != expected:
                         self.warnings.append(
@@ -879,7 +896,7 @@ class CobblemonPackChecker:
         wrong_filename = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_name / f"{pokemon_name}_animation.json"
         if wrong_filename.exists():
             self.errors.append(
-                f"{pokemon_name}: ❌ CRITICAL BUG! Animation file uses UNDERSCORES: '{pokemon_name}_animation.json'")
+                f"{pokemon_name}: ERROR: CRITICAL BUG! Animation file uses UNDERSCORES: '{pokemon_name}_animation.json'")
             self.errors.append(f"  Must use DOTS: '{pokemon_name}.animation.json' (rename the file!)")
             return False
 
@@ -969,11 +986,11 @@ class CobblemonPackChecker:
         # Proportional scaling (e.g. 128x128 for a 64x64 UV map) renders fine
         if actual_w * declared_h == actual_h * declared_w:
             self.info.append(
-                f"✓ {pokemon_name}: {label} is {actual_w}x{actual_h} "
+                f"[OK] {pokemon_name}: {label} is {actual_w}x{actual_h} "
                 f"(proportionally scaled from declared {declared_w}x{declared_h} — OK)")
         else:
             self.errors.append(
-                f"{pokemon_name}: ❌ {label} is {actual_w}x{actual_h} but model declares "
+                f"{pokemon_name}: ERROR: {label} is {actual_w}x{actual_h} but model declares "
                 f"{declared_w}x{declared_h}!")
             self.errors.append(
                 f"  Mismatched aspect ratio will garble the texture in-game. "
@@ -1000,7 +1017,7 @@ class CobblemonPackChecker:
             with open(regular_texture, 'rb') as f:
                 header = f.read(8)
                 if header != b'\x89PNG\r\n\x1a\n':
-                    self.errors.append(f"{pokemon_name}: ❌ CRITICAL! '{pokemon_name}.png' is not a valid PNG file!")
+                    self.errors.append(f"{pokemon_name}: CRITICAL! '{pokemon_name}.png' is not a valid PNG file!")
                     self.errors.append(f"  File may be corrupted or wrong format")
         except Exception as e:
             self.warnings.append(f"{pokemon_name}: Could not validate texture format: {e}")
@@ -1018,7 +1035,7 @@ class CobblemonPackChecker:
                 with open(shiny_texture, 'rb') as f:
                     if f.read(8) != b'\x89PNG\r\n\x1a\n':
                         self.errors.append(
-                            f"{pokemon_name}: ❌ '{pokemon_name}_shiny.png' is not a valid PNG file!")
+                            f"{pokemon_name}: ERROR: '{pokemon_name}_shiny.png' is not a valid PNG file!")
             except Exception:
                 pass
             self._check_texture_dimensions(pokemon_name, shiny_texture, f"{pokemon_name}_shiny.png")
@@ -1046,7 +1063,7 @@ class CobblemonPackChecker:
             if "head" in data:
                 head_bone = data["head"]
                 if head_bone is None or head_bone == "null" or head_bone == "":
-                    self.errors.append(f"{pokemon_name}: ❌ CRITICAL BUG! 'head' field is null/empty")
+                    self.errors.append(f"{pokemon_name}: ERROR: CRITICAL BUG! 'head' field is null/empty")
                     self.errors.append(f"  If no head bone, DELETE the 'head' field entirely (don't set to null!)")
                     self.errors.append(f"  This causes the 'practice dummy' bug!")
                 else:
@@ -1054,7 +1071,7 @@ class CobblemonPackChecker:
                     if hasattr(self, 'model_bones') and pokemon_name in self.model_bones:
                         model_bone_list = self.model_bones[pokemon_name]
                         if head_bone not in model_bone_list:
-                            self.errors.append(f"{pokemon_name}: ❌ Head bone '{head_bone}' doesn't exist in model!")
+                            self.errors.append(f"{pokemon_name}: ERROR: Head bone '{head_bone}' doesn't exist in model!")
                             self.errors.append(f"  Model bones are: {', '.join(model_bone_list)}")
 
             # Check for portrait scale (common issue)
@@ -1085,7 +1102,7 @@ class CobblemonPackChecker:
                                 for ref_name, ref_anim in bedrock_pattern.findall(str(anim)):
                                     if ref_name != pokemon_name:
                                         self.errors.append(
-                                            f"{pokemon_name}: ❌ Pose '{pose_name}' references "
+                                            f"{pokemon_name}: ERROR: Pose '{pose_name}' references "
                                             f"bedrock({ref_name}, ...) — wrong Pokémon name!")
                                         self.errors.append(
                                             f"  Should be bedrock({pokemon_name}, ...) — "
@@ -1094,7 +1111,7 @@ class CobblemonPackChecker:
                                         if ref_anim not in self.animation_names[pokemon_name]:
                                             available = ', '.join(sorted(self.animation_names[pokemon_name]))
                                             self.errors.append(
-                                                f"{pokemon_name}: ❌ Pose '{pose_name}' references animation "
+                                                f"{pokemon_name}: ERROR: Pose '{pose_name}' references animation "
                                                 f"'{ref_anim}' that doesn't exist in animation file!")
                                             self.errors.append(f"  Available animations: {available}")
 
@@ -1161,7 +1178,7 @@ class CobblemonPackChecker:
                               "bedrock" / "pokemon" / "posers" / f"{ref_name}.json")
                 if not poser_path.exists():
                     self.errors.append(
-                        f"{pokemon_name}: ❌ Resolver poser '{poser_ref}' has no matching file "
+                        f"{pokemon_name}: ERROR: Resolver poser '{poser_ref}' has no matching file "
                         f"at posers/{ref_name}.json")
 
             # NEW v2.1: Verify texture paths in ALL variations resolve to real files
@@ -1183,7 +1200,7 @@ class CobblemonPackChecker:
                 tex_path = self.pack_path / "resource_pack" / "assets" / "cobblemon" / rel_path
                 if not tex_path.exists():
                     self.errors.append(
-                        f"{pokemon_name}: ❌ Resolver {var_label} points at missing texture!")
+                        f"{pokemon_name}: ERROR: Resolver {var_label} points at missing texture!")
                     self.errors.append(f"  '{tex_ref}' → {tex_path}")
                     self.errors.append(f"  This causes invisible/missing textures in-game (check spelling & case)")
             if not found_texture:
@@ -1232,7 +1249,7 @@ class CobblemonPackChecker:
                     base_pokemon = str(spawn_pokemon).split(" ")[0].lower()  # ignore aspect args
                     if spawn_pokemon and base_pokemon != pokemon_name:
                         self.errors.append(
-                            f"{pokemon_name}: ❌ {label} spawns '{spawn_pokemon}' — doesn't match filename!")
+                            f"{pokemon_name}: ERROR: {label} spawns '{spawn_pokemon}' — doesn't match filename!")
                         self.errors.append(f"  Likely a copy-paste from another spawn file")
 
                     # bucket must be valid
@@ -1361,10 +1378,10 @@ class CobblemonPackChecker:
 
             # If targeting a custom species, it must exist; vanilla we can't verify
             if target_name in self.all_species:
-                self.info.append(f"✓ {label}: targets custom species '{target_name}'")
+                self.info.append(f"[OK] {label}: targets custom species '{target_name}'")
             else:
                 self.info.append(
-                    f"✓ {label}: targets '{target_name}' (not in this pack — assuming vanilla; "
+                    f"[OK] {label}: targets '{target_name}' (not in this pack — assuming vanilla; "
                     f"double-check spelling)")
 
             # Validate evolutions inside the addition
@@ -1430,23 +1447,23 @@ class CobblemonPackChecker:
     def print_results(self):
         """Print all errors, warnings, and info"""
         print(f"\n{'=' * 70}")
-        print("📊 RESULTS")
+        print("RESULTS")
         print(f"{'=' * 70}\n")
 
         if self.errors:
-            print(f"❌ ERRORS ({len(self.errors)}):")
+            print(f"ERRORS ({len(self.errors)}):")
             for error in self.errors:
                 print(f"   • {error}")
             print()
 
         if self.warnings:
-            print(f"⚠️  WARNINGS ({len(self.warnings)}):")
+            print(f"WARNINGS ({len(self.warnings)}):")
             for warning in self.warnings:
                 print(f"   • {warning}")
             print()
 
         if not self.errors and not self.warnings:
-            print("✅ NO ERRORS OR WARNINGS FOUND!")
+            print("[OK] NO ERRORS OR WARNINGS FOUND!")
             print("   Your pack looks good!\n")
 
         print(f"{'=' * 70}")
@@ -1463,6 +1480,8 @@ def main():
     )
 
     parser.add_argument('--pack-path', type=str, help='Path to pack directory')
+    parser.add_argument('--version', action='version',
+                        version=f'Cobblemon Pack Checker v{CHECKER_VERSION}')
 
     args = parser.parse_args()
 
