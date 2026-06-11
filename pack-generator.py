@@ -834,6 +834,66 @@ class CobblemonPackGenerator:
                 data['baseFriendship'] = 0
                 changes_made.append("Made legendary (catchRate=3, baseExp=290)")
 
+        # Update pokedex number if provided
+        if args.number is not None and args.number != data.get('nationalPokedexNumber'):
+            old_num = data.get('nationalPokedexNumber', '???')
+
+            # Warn if another species already uses this number
+            for other_file in species_file.parent.glob("*.json"):
+                if other_file == species_file:
+                    continue
+                try:
+                    with open(other_file, 'r') as f:
+                        other_data = json.load(f)
+                    if other_data.get('nationalPokedexNumber') == args.number:
+                        print(f"⚠️  WARNING: Dex #{args.number} is already used by "
+                              f"'{other_data.get('name', other_file.stem)}'!")
+                except Exception:
+                    pass
+
+            data['nationalPokedexNumber'] = args.number
+            changes_made.append(f"Pokédex Number: #{old_num} → #{args.number}")
+
+        # Add/replace an evolution if provided
+        if args.evo_target:
+            evo_config = {
+                'evo_target': args.evo_target,
+                'evo_method': args.evo_method,
+                'evo_level': args.evo_level,
+                'evo_item': args.evo_item,
+            }
+            new_evos = self._build_evolutions(pokemon_lower, evo_config)
+
+            existing_evos = data.get('evolutions', []) or []
+            new_ids = {e['id'] for e in new_evos}
+            # Replace same-id evolution if present, keep other branches
+            kept = [e for e in existing_evos if e.get('id') not in new_ids]
+            replaced = len(existing_evos) - len(kept)
+            data['evolutions'] = kept + new_evos
+
+            evo_desc = f"{pokemon_lower} → {args.evo_target.lower()}"
+            if args.evo_method == 'level_up':
+                evo_desc += f" at level {args.evo_level}"
+            elif args.evo_method == 'item_interact':
+                evo_desc += f" with {args.evo_item or 'minecraft:stone'}"
+            elif args.evo_method == 'trade':
+                evo_desc += " by trading"
+                if args.evo_item:
+                    evo_desc += f" (holding {args.evo_item})"
+            action = "Replaced evolution" if replaced else "Added evolution"
+            changes_made.append(f"{action}: {evo_desc}")
+            if kept:
+                changes_made.append(f"  (kept {len(kept)} other evolution branch(es))")
+
+        # Remove all evolutions if requested
+        if getattr(args, 'remove_evolutions', False):
+            old_count = len(data.get('evolutions', []) or [])
+            if old_count:
+                data['evolutions'] = []
+                changes_made.append(f"Removed all evolutions ({old_count} removed)")
+            else:
+                print(f"ℹ️  No evolutions to remove.")
+
         # Update moves if provided
         if args.moves:
             new_moves = [m.strip() for m in args.moves.split(',')]
@@ -873,9 +933,12 @@ class CobblemonPackGenerator:
                 print(f"\n❌ Error saving changes: {e}")
         else:
             print(f"\n⚠️  No changes specified!")
-            print(f"   Use --hp, --attack, --defence, etc. to make changes")
-            print(f"\n💡 Example:")
+            print(f"   Use --hp, --attack, --number, --evo-target, --moves, etc. to make changes")
+            print(f"\n💡 Examples:")
             print(f"   python script.py --edit {pokemon_name} --hp 80 --attack 70 --rarity rare")
+            print(f"   python script.py --edit {pokemon_name} --number 1102")
+            print(f"   python script.py --edit {pokemon_name} --evo-target newmon --evo-level 25")
+            print(f"   python script.py --edit {pokemon_name} --remove-evolutions")
 
         print(f"\n{'=' * 70}\n")
 
@@ -1029,6 +1092,8 @@ Examples:
     parser.add_argument('--evo-level', type=int, default=36, help='Level to evolve at (default: 36)')
     parser.add_argument('--evo-item', type=str, help='Item required for item_interact or trade evolution')
     parser.add_argument('--pre-evolution', type=str, help='Pokémon this evolves from (e.g. "grayfix")')
+    parser.add_argument('--remove-evolutions', action='store_true',
+                        help='(edit mode) Remove ALL evolutions from the Pokémon')
 
     # Model customization
     parser.add_argument('--head-bone', type=str, default='head',
