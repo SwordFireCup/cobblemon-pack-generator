@@ -21,9 +21,13 @@ v2.2 changelog (2026-06-11):
 v2.3 changelog (2026-06-11):
   - CHANGE: results UI groups detail lines as indented children of their
             parent issue; error/warning counts now count issues, not lines
+v2.4 changelog (2026-06-11):
+  - CHANGE: battle_idle demoted from required (error) to recommended (warning)
+            — Cobblemon falls back to ground_idle, and the generator doesn't
+            create it, so packs straight from the generator now pass clean
 """
 
-CHECKER_VERSION = "2.3"
+CHECKER_VERSION = "2.4"
 
 import json
 import os
@@ -41,7 +45,12 @@ class CobblemonPackChecker:
     ]
 
     REQUIRED_ANIMATIONS = [
-        "ground_idle", "ground_walk", "battle_idle"
+        "ground_idle", "ground_walk"
+    ]
+
+    # Cobblemon falls back gracefully if these are missing, so they're warnings
+    RECOMMENDED_ANIMATIONS = [
+        "battle_idle"
     ]
 
     OPTIONAL_ANIMATIONS = [
@@ -936,6 +945,15 @@ class CobblemonPackChecker:
                 anim_key = f"animation.{pokemon_name}.{required_anim}"
                 if anim_key not in animations:
                     self.errors.append(f"{pokemon_name}: Missing required animation '{required_anim}'")
+
+            # Check recommended animations (Cobblemon falls back if absent)
+            for rec_anim in self.RECOMMENDED_ANIMATIONS:
+                anim_key = f"animation.{pokemon_name}.{rec_anim}"
+                if anim_key not in animations:
+                    self.warnings.append(
+                        f"{pokemon_name}: Missing recommended animation '{rec_anim}'")
+                    self.warnings.append(
+                        f"  Cobblemon will fall back to ground_idle, but battles look better with it")
 
             # BONE MATCHING: Check if animation bones exist in model
             if hasattr(self, 'model_bones') and pokemon_name in self.model_bones:
