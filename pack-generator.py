@@ -1101,7 +1101,7 @@ Examples:
     parser.add_argument('--number', type=int, help='Pokédex number')
 
     # Type arguments
-    parser.add_argument('--primary-type', type=str, default='normal', help='Primary type (default: normal)')
+    parser.add_argument('--primary-type', type=str, default=None, help='Primary type (default: normal on create)')
     parser.add_argument('--secondary-type', type=str, help='Secondary type (optional)')
 
     # Stats
@@ -1127,8 +1127,8 @@ Examples:
     parser.add_argument('--no-look', action='store_true', help='Pokémon cannot look around (canLook=false)')
 
     # Spawn configuration
-    parser.add_argument('--rarity', type=str, default='common', choices=['common', 'uncommon', 'rare', 'ultra-rare'],
-                        help='Spawn rarity')
+    parser.add_argument('--rarity', type=str, default=None, choices=['common', 'uncommon', 'rare', 'ultra-rare'],
+                        help='Spawn rarity (default: common on create)')
     parser.add_argument('--spawn-level', type=str, default='5-30', help='Spawn level range (e.g. "10-40")')
     parser.add_argument('--spawn-biomes', type=str, default='#minecraft:is_overworld',
                         help='Spawn biomes (comma-separated)')
@@ -1183,7 +1183,7 @@ Examples:
     # Build configuration dictionary
     config = {
         'pokedex_number': args.number,
-        'primary_type': args.primary_type,
+        'primary_type': args.primary_type if args.primary_type is not None else 'normal',
         'secondary_type': args.secondary_type,
         'hp': args.hp if args.hp is not None else 50,
         'attack': args.attack if args.attack is not None else 50,
@@ -1199,7 +1199,7 @@ Examples:
         'can_swim': args.can_swim,
         'breathe_underwater': args.breathe_underwater,
         'can_look': not args.no_look,  # Inverted: --no-look sets canLook to false
-        'rarity': args.rarity,
+        'rarity': args.rarity if args.rarity is not None else 'common',
         'spawn_level': args.spawn_level,
         'spawn_biomes': args.spawn_biomes,
         'desc1': args.desc1,
