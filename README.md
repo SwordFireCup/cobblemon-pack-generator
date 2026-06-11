@@ -160,8 +160,9 @@ python pack-generator.py --edit Grayfix --hp 60 --attack 70
 python pack-generator.py --edit Grayfix --moves "0:tackle,5:bite,tm:crunch" --abilities "intimidate,h:sand_rush"
 python pack-generator.py --edit Grayfix --primary-type dark --rarity uncommon
 ```
-
-**Warning**: `--edit` only updates what you specify. All other existing data is preserved.
+Everythnig you can generate, you can edit!
+Use --editfiles with files inside the folder and the files will be switched with the files of the specified pokemon
+`--edit` only updates what you specify. All other existing data is preserved.
 
 ## Installation
 
