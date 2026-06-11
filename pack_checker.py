@@ -1,1492 +1,1734 @@
 #!/usr/bin/env python3
 """
-Cobblemon Pack Error Checker
-Validates all files in your Cobblemon pack for common errors
+Cobblemon Pokémon Pack Generator for Minecraft 1.21.1
+Creates SEPARATE resource and behavior packs for easier distribution
 
-v2.1 changelog (2026-06-10):
-  - FIX: missing comma merged 'splishysplash'/'spore' in COMMON_MOVES
-  - NEW: resolver texture/poser paths verified against real files
-  - NEW: poser bedrock(name, anim) refs cross-checked (wrong name, missing anim)
-  - NEW: texture dimensions vs model UV size (IHDR parse, no PIL needed)
-  - NEW: evolution structure + target validation (incl. missing level reqs)
-  - NEW: lang file completeness (.name + declared pokedex keys)
-  - NEW: species_additions validation (JSON, target, evolutions, moves footgun)
-  - NEW: orphan file detection (posers/resolvers/models/anims/textures/spawns)
-  - NEW: spawn deep checks (pokemon-matches-filename, bucket, weight, level range)
-  - NEW: pack.mcmeta validation (formats 34/48 for 1.21.1)
-  - NEW: experienceGroup + maleRatio field validation
-  - NEW: --version flag
-v2.2 changelog (2026-06-11):
-  - CHANGE: emoji-free console output for Windows terminal compatibility
+v2.2 changelog (2026-06-10):
+  - FIX: --show-current-pokemon / --edit crashed with NameError
+  - FIX: --edit silently reset base stats to 50 (argparse default leak)
+  - FIX: --edit silently reset primary type to 'normal' and rarity to 'common'
+         (same default leak; all edit-mode flags now audited, default=None)
+  - FIX: shiny texture assignment no longer depends on directory order
+  - NEW: --edit supports --number (with duplicate-dex warning)
+  - NEW: --edit supports evolutions (--evo-target/-method/-level/-item,
+         dedupes by id, supports branches, --remove-evolutions)
+  - NEW: --edit supports --head-bone none / --head-bone <bone> / --no-look
+         (updates poser head field, look animations, and species canLook)
+  - NEW: --version flag to verify which build is on disk
+v2.3 changelog (2026-06-11):
+  - NEW: --edit parity with creation: --height, --weight, --can-fly,
+         --can-swim, --breathe-underwater, --spawn-level, --spawn-biomes
+         (all spawn entries), --desc1/--desc2, --pre-evolution
+  - NEW: --editfiles <pokemon>: swap in new model/animation/texture files
+         from the pack folder; old files moved out for one-command undo
+  - NEW: --edit <old> --rename <new>: renames across ALL sites (species,
+         spawn, model id, animation keys, poser refs, resolver, textures,
+         lang, other species evolutions/preEvolution, species_additions)
+v2.4 changelog (2026-06-11):
+  - CHANGE: emoji-free console output (ASCII labels: [OK], ERROR:, WARNING:,
+            NOTE:, TIP:) for Windows terminal compatibility
 """
 
-CHECKER_VERSION = "2.2"
+GENERATOR_VERSION = "2.4"
 
-import json
 import os
+import json
+import shutil
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional
+import argparse
 
 
-class CobblemonPackChecker:
-    """Checks Cobblemon packs for errors"""
+class CobblemonPackGenerator:
+    """Generates separate Cobblemon resource and behavior packs"""
 
-    VALID_TYPES = [
-        "normal", "fire", "water", "electric", "grass", "ice", "fighting",
-        "poison", "ground", "flying", "psychic", "bug", "rock", "ghost",
-        "dragon", "dark", "steel", "fairy"
-    ]
+    # Pack formats for 1.21.1
+    RESOURCE_PACK_FORMAT = 34  # Change to 40+ if needed for newer versions
+    DATA_PACK_FORMAT = 48  # Data pack format for 1.21.1
 
-    REQUIRED_ANIMATIONS = [
-        "ground_idle", "ground_walk", "battle_idle"
-    ]
+    def __init__(self, downloads_path: str = None):
+        """Initialize the pack generator"""
+        if downloads_path is None:
+            downloads_path = str(Path.home() / "Downloads")
 
-    OPTIONAL_ANIMATIONS = [
-        "sleep", "faint", "cry", "air_idle", "air_fly", "water_idle", "water_swim"
-    ]
+        self.base_dir = Path(downloads_path) / "Mod-ResourceAndBehavior-Packs"
 
-    # Common Cobblemon moves (not exhaustive, but catches most typos)
-    COMMON_MOVES = {
-            # A
-    "10000000voltthunderbolt", "absorb", "accelerock", "acid", "acidarmor", "aciddownpour", "acidspray",
-    "acrobatics", "acupressure", "aerialace", "aeroblast", "afteryou",
-    "agility", "airslash", "aircutter", "alloutpummeling",
-    "allyswitch", "amnesia", "anchorshot", "ancientpower",
-    "appleacid", "aquacutter", "aquajet", "aquaring", "aquastep", "aquatail",
-    "armorcannon", "armthrust", "aromatherapy", "aromaticmist",
-    "assist", "assurance", "astonish", "astralbarrage",
-    "attackorder", "attract", "aurasphere", "aurorabeam", "auroraveil",
-    "autotomize", "avalanche", "axekick",
+        # Separate packs for easier distribution
+        self.resource_pack_dir = self.base_dir / "resource_pack"
+        self.behavior_pack_dir = self.base_dir / "behavior_pack"
 
-    # B
-    "babydolleyes", "baddybad", "banefulbunker", "barbbarrage",
-    "barrage", "barrier", "batonpass", "beakblast", "beatup",
-    "belch", "bellydrum", "bestow", "bide", "bind", "bite",
-    "bitterblade", "bittermalice", "blackholeeclipse",
-    "blastburn", "blazekick", "bleakwindstorm", "blizzard",
-    "block", "bloomdoom", "blueflare", "bodypress", "bodyslam",
-    "boltbeak", "boltstrike", "boneclub", "bonemerang", "bonerush",
-    "boomburst", "bounce", "bouncybubble", "branchpoke",
-    "bravebird", "breakingswipe", "breakneckblitz", "brickbreak",
-    "brine", "brutalswing", "bubble", "bubblebeam",
-    "bugbite", "bugbuzz", "bulkup", "bulldoze",
-    "bulletpunch", "bulletseed", "burningjealousy", "burnup",
-    "buzzybuzz",
+        # Expected file types
+        self.animation_extensions = ['.animation.json', '.animations.json']
+        self.model_extensions = ['.geo.json', '.json']
+        self.texture_extensions = ['.png', '.tga']
 
-    # C
-    "calmmind", "camouflage", "captivate", "catastropika",
-    "ceaselessedge", "celebrate", "charge", "chargebeam",
-    "charm", "chatter", "chillingwater", "chillyreception",
-    "chipaway", "chloroblast", "circlethrow", "clamp",
-    "clangoroussoul", "clangoroussoulblaze", "clearsmog",
-    "closecombat", "coaching", "coil", "collisioncourse",
-    "cometpunch", "comeuppance", "confide", "confuseray",
-    "confusion", "constrict", "continentalcrush", "conversion",
-    "conversion2", "copycat", "coreenforcer", "corkscrewcrash",
-    "corrosivegas", "cosmicpower", "cottonguard", "cottonspore",
-    "counter", "courtchange", "covet", "crabhammer",
-    "craftyshield", "crosschop", "crosspoison", "crunch",
-    "crushclaw", "crushgrip", "curse", "cut",
+    def create_pack_mcmeta(self, pack_type: str) -> Dict:
+        """Create pack.mcmeta for resource or behavior pack
 
-    # D
-    "darkestlariat", "darkpulse", "darkvoid", "dazzlinggleam",
-    "decorate", "defendorder", "defensecurl", "defog",
-    "destinybond", "detect", "devastatingdrake", "diamondstorm",
-    "dig", "disable", "disarmingvoice", "discharge",
-    "dive", "dizzypunch", "doodle", "doomdesire",
-    "doubleedge", "doubleironbash", "doublekick", "doubleshock",
-    "doubleslap", "doubleteam", "dracometeor", "dragonascent",
-    "dragonbreath", "dragonclaw", "dragondance", "dragondarts",
-    "dragonenergy", "dragonhammer", "dragonpulse", "dragonrage",
-    "dragonrush", "dragontail", "drainingkiss", "drainpunch",
-    "dreameater", "drillpeck", "drillrun", "drumbeating",
-    "dualchop", "dualwingbeat", "dynamaxcannon",
+        Note: Packs can only be combined into one folder if both formats match!
+        For 1.21.1: Resource = 34 (or 40+), Data = 48
+        """
+        if pack_type == 'resource':
+            return {
+                "pack": {
+                    "pack_format": self.RESOURCE_PACK_FORMAT,
+                    "description": "Cobblemon Custom Pokémon - Resource Pack"
+                }
+            }
+        else:  # behavior/data pack
+            return {
+                "pack": {
+                    "pack_format": self.DATA_PACK_FORMAT,
+                    "description": "Cobblemon Custom Pokémon - Data Pack"
+                }
+            }
 
-    # E
-    "earthpower", "earthquake", "echoedvoice", "eerieimpulse",
-    "eeriespell", "eggbomb", "electricterrain", "electrify",
-    "electroball", "electrodrift", "electroweb", "embargo",
-    "ember", "encore", "endeavor", "endure",
-    "energyball", "entrainment", "eruption", "esperwing",
-    "eternabeam", "expandingforce", "explosion", "extrasensory",
-    "extremeevoboost", "extremespeed",
+    def setup_directories(self, pokemon_name: str):
+        """Create directory structure for both packs"""
+        print(f"\nSetting up directory structure for {pokemon_name}...")
 
-    # F
-    "facade", "faintattack", "fairylock", "fairywind",
-    "fakeout", "faketears", "falsesurrender", "falseswipe",
-    "featherdance", "feint", "feintattack", "fellstinger",
-    "fierydance", "fierywrath", "filletaway", "finalgambit",
-    "fireblast", "firefang", "firelash", "firepledge",
-    "firepunch", "firespin", "firstimpression", "fishiousrend",
-    "fissure", "flail", "flameburst", "flamecharge",
-    "flamewheel", "flamethrower", "flareblitz", "flash",
-    "flashcannon", "flatter", "fleurcannon", "fling",
-    "flipturn", "floatyfall", "floralhealing", "flowershield",
-    "flowertrick", "fly", "flyingpress", "focusblast",
-    "focusenergy", "focuspunch", "followme", "forcepalm",
-    "foresight", "forestscurse", "foulplay", "freezedry",
-    "freezeshock", "freezingglare", "freezyfrost", "frenzyplant",
-    "frostbreath", "frustration", "furyattack", "furycutter",
-    "furyswipes", "fusionbolt", "fusionflare", "futuresight",
+        pokemon_lower = pokemon_name.lower()
 
-    # G
-    "gastroacid", "geargrind", "gearup", "genesissupernova",
-    "geomancy", "gigadrain", "gigaimpact", "gigatonhammer",
-    "gigavolthavoc", "glaciallance", "glaciate", "glaiverush",
-    "glare", "glitzyglow", "gmaxbefuddle", "gmaxcannonade",
-    "gmaxcentiferno", "gmaxchistrike", "gmaxcuddle",
-    "gmaxdepletion", "gmaxdrumsolo", "gmaxfinale", "gmaxfireball",
-    "gmaxfoamburst", "gmaxgoldrush", "gmaxgravitas",
-    "gmaxhydrosnipe", "gmaxmalodor", "gmaxmeltdown",
-    "gmaxoneblow", "gmaxrapidflow", "gmaxreplenish",
-    "gmaxresonance", "gmaxsandblast", "gmaxsmite", "gmaxsnooze",
-    "gmaxsteelsurge", "gmaxstonesurge", "gmaxstunshock",
-    "gmaxsweetness", "gmaxtartness", "gmaxterror", "gmaxvinelash",
-    "gmaxvolcalith", "gmaxvoltcrash", "gmaxwildfire", "gmaxwindrage",
-    "grassknot", "grasspledge", "grasswhistle", "grassyglide",
-    "grassyterrain", "gravapple", "gravity", "growl",
-    "growth", "grudge", "guardianofalola", "guardsplit",
-    "guardswap", "guillotine", "gunkshot", "gust",
+        # Resource pack directories
+        resource_dirs = [
+            self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_lower,
+            self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_lower,
+            self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "posers",
+            self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers",
+            self.resource_pack_dir / "assets" / "cobblemon" / "textures" / "pokemon" / pokemon_lower,
+            self.resource_pack_dir / "assets" / "cobblemon" / "lang",
+        ]
 
-    # H
-    "hail", "hammerarm", "happyhour", "harden",
-    "haze", "headbutt", "headcharge", "headlongrush",
-    "headsmash", "healbell", "healblock", "healingwish",
-    "healorder", "healpulse", "heartstamp",
-    "heartswap", "heatcrash", "heatwave", "heavyslam",
-    "helpinghand", "hex", "hiddenpower", "hiddenpowerbug",
-    "hiddenpowerdark", "hiddenpowerdragon", "hiddenpowerelectric",
-    "hiddenpowerfighting", "hiddenpowerfire", "hiddenpowerflying",
-    "hiddenpowerghost", "hiddenpowergrass", "hiddenpowerground",
-    "hiddenpowerice", "hiddenpowerpoison", "hiddenpowerpsychic",
-    "hiddenpowerrock", "hiddenpowersteel", "hiddenpowerwater",
-    "highhorsepower", "highjumpkick", "holdback", "holdhands",
-    "honeclaws", "hornattack", "horndrill", "hornleech",
-    "howl", "hurricane", "hydrocannon", "hydropump",
-    "hydrosteam", "hydrovortex", "hyperbeam", "hyperdrill",
-    "hyperfang", "hyperspacefury", "hyperspacehole", "hypervoice",
-    "hypnosis",
+        # Behavior pack (data pack) directories
+        behavior_dirs = [
+            self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom",
+            self.behavior_pack_dir / "data" / "cobblemon" / "species_features",
+            self.behavior_pack_dir / "data" / "cobblemon" / "spawn_pool_world",
+        ]
 
-    # I
-    "iceball", "icebeam", "iceburn", "icefang",
-    "icehammer", "icepunch", "iceshard", "icespinner",
-    "iciclecrash", "iciclespear", "icywind",
-    "imprison", "incinerate", "infernalparade", "inferno",
-    "infernooverdrive", "infestation", "ingrain", "instruct",
-    "iondeluge", "irondefense", "ironhead", "irontail",
+        for directory in resource_dirs + behavior_dirs:
+            directory.mkdir(parents=True, exist_ok=True)
 
-    # J
-    "jawlock", "jetpunch", "judgment", "jumpkick",
-    "junglehealing",
+        print("[OK] Directory structure created!")
 
-    # K
-    "karatechop", "kinesis", "kingsshield", "knockoff",
-    "kowtowcleave",
+    def find_files_in_base_dir(self) -> Dict[str, List[Path]]:
+        """Find all relevant files in the base directory (excludes Python scripts)"""
+        files = {
+            'animations': [],
+            'models': [],
+            'textures': [],
+            'other': []
+        }
 
-    # L
-    "landswrath", "laserfocus", "lashout", "lastresort",
-    "lastrespects", "lavaplume", "leafage", "leafblade",
-    "leafstorm", "leaftornado", "leechlife", "leechseed",
-    "leer", "letssnuggleforever", "lick", "lifedew",
-    "lightscreen", "lightthatburnsthesky", "liquidation",
-    "lockon", "lovelykiss", "lowkick", "lowsweep",
-    "luckychant", "luminacrash", "lunarblessing", "lunardance",
-    "lunge", "lusterpurge",
+        if not self.base_dir.exists():
+            print(f"WARNING: Base directory not found: {self.base_dir}")
+            return files
 
-    # M
-    "machpunch", "magiccoat", "magicpowder", "magicroom",
-    "magicalleaf", "magmastorm", "magnetbomb", "magneticflux",
-    "magnetrise", "magnitude", "makeitrain", "maliciousmoonsault",
-    "malignantchain", "matblock", "maxdarkness", "maxflare",
-    "maxflutterby", "maxgeyser", "maxguard", "maxhailstorm",
-    "maxknuckle", "maxlightning", "maxmindstorm", "maxooze",
-    "maxovergrowth", "maxphantasm", "maxquake", "maxrockfall",
-    "maxstarfall", "maxsteelspike", "maxstrike", "maxwyrmwind",
-    "meanlook", "meditate", "mefirst", "megadrain",
-    "megahorn", "megakick", "megapunch", "memento",
-    "menacingmoonrazemaelstrom", "metalburst", "metalclaw",
-    "metalsound", "meteorassault", "meteorbeam", "meteormash",
-    "metronome", "milkdrink", "mimic", "mindblown",
-    "mindreader", "minimize", "miracleeye", "mirrorcoat",
-    "mirrormove", "mirrorshot", "mist", "mistball",
-    "mistyexplosion", "mistyterrain", "moonblast", "moongeistbeam",
-    "moonlight", "morningsun", "mortalspin", "mountaingale",
-    "mudbomb", "mudshot", "mudslap", "mudsport",
-    "muddywater", "multiattack", "mysticalfire", "mysticalpower",
+        for file in self.base_dir.iterdir():
+            # Skip directories, Python files, and hidden files
+            if not file.is_file():
+                continue
+            if file.suffix == '.py':
+                continue
+            if file.name.startswith('.'):
+                continue
 
-    # N
-    "nastyplot", "naturalgift", "naturepower", "naturesmadness",
-    "needlearm", "neverendingnightmare", "nightdaze", "nightmare",
-    "nightshade", "nightslash", "nobleroar", "noretreat",
-    "noxioustorque", "nuzzle",
-
-    # O
-    "oblivionwing", "obstruct", "oceanicoperetta", "octazooka",
-    "octolock", "odorsleuth", "ominouswind", "orderup",
-    "originpulse", "outrage", "overdrive", "overheat",
-
-    # P
-    "painsplit", "paleowave", "paraboliccharge", "partingshot",
-    "payback", "payday", "peck", "perishsong",
-    "petaldance", "petalblizzard", "phantomforce", "photongeyser",
-    "pikapapow", "pinmissile", "plasmafists", "playnice",
-    "playrough", "pluck", "poisonfang", "poisongas",
-    "poisonjab", "poisonpowder", "poisontail", "pollenpuff",
-    "poltergeist", "populationbomb", "pounce", "pound",
-    "powder", "powdersnow", "powershift", "powersplit",
-    "powerswap", "powertrick", "poweruppunch", "powerwhip",
-    "precipiceblades", "present", "prismaticlaser", "protect",
-    "psybeam", "psyblade", "psychic", "psychicfangs",
-    "psychicterrain", "psychoboost", "psychocut", "psychoshift",
-    "psychup", "psyshieldbash", "psystrike", "psywave",
-    "pulverizingpancake", "punishment", "purify", "pursuit",
-    "pyroball",
-
-    # Q
-    "quash", "quickattack", "quickguard", "quiverdance",
-
-    # R
-    "rage", "ragefist", "ragepowder", "ragingbull",
-    "ragingfury", "raindance", "rapidspin",
-    "razorleaf", "razorshell", "razorwind", "recover",
-    "recycle", "reflect", "reflecttype", "refresh",
-    "relicsong", "rest", "retaliate", "return",
-    "revenge", "reversal", "revivalblessing", "risingvoltage",
-    "roar", "roaroftime", "rockblast", "rockclimb",
-    "rockpolish", "rockslide", "rocksmash", "rockthrow",
-    "rocktomb", "rockwrecker", "roleplay", "rollingkick",
-    "rollout", "roost", "rototiller", "round",
-    "ruination",
-
-    # S
-    "sacredfire", "sacredsword", "safeguard", "saltcure",
-    "sandattack", "sandsearstorm", "sandstorm", "sandtomb",
-    "sappyseed", "savagespinout", "scald", "scaleshot",
-    "scaryface", "scorchingsands", "scratch", "screech",
-    "searingshot", "searingsunrazesmash", "secretpower",
-    "secretsword", "seedbomb", "seedflare", "seismictoss",
-    "selfdestruct", "shadowball", "shadowbone", "shadowclaw",
-    "shadowforce", "shadowpunch", "shadowsneak", "shadowstrike",
-    "sharpen", "shatteredpsyche", "shedtail", "sheercold",
-    "shellsidearm", "shellsmash", "shelltrap", "shelter",
-    "shiftgear", "shockwave", "shoreup", "signalbeam",
-    "silktrap", "silverwind", "simplebeam", "sing",
-    "sinisterarrowraid", "sizzlyslide", "sketch", "skillswap",
-    "skittersmack", "skullbash", "skyattack", "skydrop",
-    "skyuppercut", "slackoff", "slam", "slash",
-    "sleeppowder", "sleeptalk", "sludge", "sludgebomb",
-    "sludgewave", "smackdown", "smartstrike", "smellingsalts",
-    "smog", "smokescreen", "snaptrap", "snarl",
-    "snatch", "snipeshot", "snore", "snowscape",
-    "soak", "softboiled", "solarbeam", "solarblade",
-    "sonicboom", "soulstealing7starstrike", "spacialrend",
-    "spark", "sparklingaria", "sparklyswirl", "spectralthief",
-    "speedswap", "spicyextract", "spiderweb", "spikecannon",
-    "spikes", "spikyshield", "spinout", "spiritbreak",
-    "spiritshackle", "spite", "spitup", "splash",
-    "splinteredstormshards", "splishysplash", "spore",
-    "spotlight", "springtidestorm", "stealthrock",
-    "steamroller", "steameruption", "steelbeam", "steelroller",
-    "steelwing", "stickyweb", "stockpile", "stokedsparksurfer",
-    "stomp", "stompingtantrum", "stoneaxe", "stoneedge",
-    "storedpower", "stormthrow", "strangesteam", "strength",
-    "strengthsap", "stringshot", "struggle", "strugglebug",
-    "stuffcheeks", "stunspore", "submission", "substitute",
-    "subzeroslammer", "suckerpunch", "sunnyday", "sunsteelstrike",
-    "superfang", "superpower", "supersonic", "supersonicskystrike",
-    "surf", "surgingstrikes", "swagger", "swallow",
-    "sweetkiss", "sweetscent", "swift", "switcheroo",
-    "swordsdance", "synchronoise", "synthesis",
-
-    # T
-    "tackle", "tailglow", "tailslap", "tailwhip",
-    "tailwind", "takedown", "tarshot", "taunt",
-    "tearfullook", "teatime", "technoblast", "tectonierage",
-    "teeterdance", "telekinesis", "teleport", "terablast",
-    "terrainpulse", "thief", "thousandarrows", "thousandwaves",
-    "thrash", "throatchop", "thunder", "thunderbolt",
-    "thundercage", "thunderfang", "thunderpunch", "thundershock",
-    "thunderwave", "thunderouskick", "tickle", "topsyturvy",
-    "torment", "toxic", "toxicspikes", "toxicthread",
-    "trailblaze", "transform", "triattack", "trick",
-    "trickroom", "tripleaxel", "triplearrows", "tripledive",
-    "tropkick", "trumpcard", "twinbeam", "twinneedle",
-    "twister",
-
-    # U
-    "uproar", "uturn",
-
-    # V
-    "vacuumwave", "vcreate", "venomdrench", "venoshock",
-    "victorydance", "vinewhip", "vitalthrow", "volttackle",
-    "voltswitch",
-
-    # W
-    "wakeupslap", "waterfall", "watergun", "waterpledge",
-    "waterpulse", "watershuriken", "watersport", "waterspout",
-    "wavecrash", "weatherball", "whirlpool", "whirlwind",
-    "wickedblow", "wickedtorque", "wideguard", "wildcharge",
-    "willowisp", "wingattack", "wish", "withdraw",
-    "wonderroom", "woodhammer", "workup", "worryseed",
-    "wrap", "wringout",
-
-    # X
-    "xscissor",
-
-    # Y
-    "yawn",
-
-    # Z
-    "zapcannon", "zenheadbutt", "zingzap", "zippyzap",
-    }
-
-    # Common Cobblemon abilities (complete list - 310 abilities)
-    COMMON_ABILITIES = {
-        "adaptability", "aerilate", "aftermath", "airlock", "analytic",
-        "angerpoint", "angershell", "anticipation", "arenatrap", "armortail",
-        "aromaveil", "asoneglastrier", "asonespectrier", "aurabreak",
-        "baddreams", "ballfetch", "battery", "battlearmor", "battlebond",
-        "beadsofruin", "beastboost", "berserk", "bigpecks", "blaze",
-        "bulletproof", "cheekpouch", "chillingneigh", "chlorophyll", "clearbody",
-        "cloudnine", "colorchange", "comatose", "commander", "competitive",
-        "compoundeyes", "contrary", "corrosion", "costar", "cottondown",
-        "cudchew", "curiousmedicine", "cursedbody", "cutecharm", "damp",
-        "dancer", "darkaura", "dauntlessshield", "dazzling", "defeatist",
-        "defiant", "deltastream", "desolateland", "disguise", "download",
-        "dragonsmaw", "drizzle", "drought", "dryskin", "earlybird",
-        "eartheater", "effectspore", "electricsurge", "electromorphosis",
-        "embodyaspectteal", "embodyaspecthearthflame", "embodyaspectwellspring",
-        "embodyaspectcornerstone", "emergencyexit", "fairyaura", "filter",
-        "flamebody", "flareboost", "flashfire", "flowergift", "flowerveil",
-        "fluffy", "forecast", "forewarn", "friendguard", "frisk",
-        "fullmetalbody", "furcoat", "galewings", "galvanize", "gluttony",
-        "goodasgold", "gooey", "gorillatactics", "grasspelt", "grassysurge",
-        "grimneigh", "guarddog", "gulpmissile", "guts", "hadronengine",
-        "harvest", "healer", "heatproof", "heavymetal", "honeygather",
-        "hospitality", "hugepower", "hungerswitch", "hustle", "hydration",
-        "hypercutter", "icebody", "iceface", "icescales", "illuminate",
-        "illusion", "immunity", "imposter", "infiltrator", "innardsout",
-        "innerfocus", "insomnia", "intimidate", "intrepidsword", "ironbarbs",
-        "ironfist", "justified", "keeneye", "klutz", "leafguard",
-        "levitate", "libero", "lightmetal", "lightningrod", "limber",
-        "lingeringaroma", "liquidooze", "liquidvoice", "longreach",
-        "magicbounce", "magicguard", "magician", "magmaarmor", "magnetpull",
-        "marvelscale", "megalauncher", "merciless", "mimicry", "mindseye",
-        "minus", "mirrorarmor", "mistysurge", "moldbreaker", "moody",
-        "motordrive", "moxie", "multiscale", "multitype", "mummy",
-        "myceliummight", "naturalcure", "neuroforce", "neutralizinggas",
-        "noguard", "normalize", "oblivious", "opportunist", "orichalcumpulse",
-        "overcoat", "overgrow", "owntempo", "parentalbond", "pastelveil",
-        "perishbody", "pickpocket", "pickup", "pixilate", "plus",
-        "poisonheal", "poisonpoint", "poisonpuppeteer", "poisontouch",
-        "powerconstruct", "powerofalchemy", "powerspot", "prankster",
-        "pressure", "primordialsea", "prismarmor", "propellertail",
-        "protean", "protosynthesis", "psychicsurge", "punkrock", "purepower",
-        "purifyingsalt", "quarkdrive", "queenlymajesty", "quickdraw",
-        "quickfeet", "raindish", "rattled", "receiver", "reckless",
-        "refrigerate", "regenerator", "ripen", "rivalry", "rkssystem",
-        "rockhead", "rockypayload", "roughskin", "runaway", "sandforce",
-        "sandrush", "sandspit", "sandstream", "sandveil", "sapsipper",
-        "schooling", "scrappy", "screencleaner", "seedsower", "serenegrace",
-        "shadowshield", "shadowtag", "sharpness", "shedskin", "sheerforce",
-        "shellarmor", "shielddust", "shieldsdown", "simple", "skilllink",
-        "slowstart", "slushrush", "sniper", "snowcloak", "snowwarning",
-        "solarpower", "solidrock", "soulheart", "soundproof", "speedboost",
-        "stakeout", "stall", "stalwart", "stamina", "stancechange",
-        "static", "steadfast", "steamengine", "steelworker", "steelyspirit",
-        "stench", "stickyhold", "stormdrain", "strongjaw", "sturdy",
-        "suctioncups", "superluck", "supersweetsyrup", "supremeoverlord",
-        "surgesurfer", "swarm", "sweetveil", "swiftswim", "swordofruin",
-        "symbiosis", "synchronize", "tabletsofruin", "tangledfeet",
-        "tanglinghair", "technician", "telepathy", "terashell", "terashift",
-        "teraformzero", "teravolt", "thermalexchange", "thickfat",
-        "tintedlens", "torrent", "toughclaws", "toxicboost", "toxicchain",
-        "toxicdebris", "trace", "transistor", "triage", "truant",
-        "turboblaze", "unaware", "unburden", "unnerve", "unseenfist",
-        "vesselofruin", "victorystar", "vitalspirit", "voltabsorb",
-        "wanderingspirit", "waterabsorb", "waterbubble", "watercompaction",
-        "waterveil", "weakarmor", "wellbakedbody", "whitesmoke", "wimpout",
-        "windpower", "windrider", "wonderguard", "wonderskin", "zenmode",
-        "zerotohero"
-    }
-
-    # Valid egg groups
-    VALID_EGG_GROUPS = {
-        "monster", "water1", "bug", "flying", "field", "fairy", "grass", "humanlike",
-        "water3", "mineral", "amorphous", "water2", "ditto", "dragon", "undiscovered"
-    }
-
-    # Valid experience groups
-    VALID_EXP_GROUPS = {
-        "slow", "medium_slow", "medium_fast", "fast", "erratic", "fluctuating"
-    }
-
-    # Valid spawn buckets
-    VALID_BUCKETS = {"common", "uncommon", "rare", "ultra-rare"}
-
-    def __init__(self, pack_path: str = None):
-        if pack_path is None:
-            pack_path = str(Path.home() / "Downloads" / "Mod-ResourceAndBehavior-Packs")
-
-        self.pack_path = Path(pack_path)
-        self.errors = []
-        self.warnings = []
-        self.info = []
-        self.dex_numbers = {}  # Track dex numbers to find duplicates
-        self.model_bones = {}  # Cache model bones for validation
-        self.animation_names = {}  # Cache animation names (pokemon -> set of suffixes)
-        self.model_texture_size = {}  # Cache declared texture_width/height per pokemon
-        self.species_evolutions = {}  # Cache evolutions per pokemon (for target checks)
-        self.species_pokedex_keys = {}  # Cache pokedex lang keys declared per pokemon
-        self.all_species = set()  # All custom species names found
-
-    def check_all(self):
-        """Run all checks"""
-        print(f"\n{'=' * 70}")
-        print(f"COBBLEMON PACK ERROR CHECKER v{CHECKER_VERSION}")
-        print(f"{'=' * 70}")
-        print("Checks include:")
-        print("   • Resolver texture/poser path verification")
-        print("   • Poser → animation cross-checking")
-        print("   • Texture dimensions vs model UV size")
-        print("   • Evolution target validation")
-        print("   • Lang file completeness (name/desc keys)")
-        print("   • species_additions validation")
-        print("   • Orphan file detection")
-        print("   • Spawn file deep checks + pack.mcmeta validation")
-        print(f"{'=' * 70}\n")
-        print(f"Checking pack: {self.pack_path}\n")
-
-        # Check pack structure
-        self.check_pack_structure()
-
-        # Find all Pokemon
-        pokemon_list = self.find_all_pokemon()
-        self.all_species = set(pokemon_list)
-
-        if not pokemon_list:
-            self.errors.append("No Pokémon found in pack!")
-            self.print_results()
-            return
-
-        print(f"Found {len(pokemon_list)} Pokémon to check...\n")
-
-        # Check each Pokemon
-        for pokemon_name in pokemon_list:
-            self.check_pokemon(pokemon_name)
-
-        # Pack-level cross-checks (need all species data collected first)
-        print("Running pack-level cross-checks...")
-        self.check_evolution_targets()
-        self.check_lang_file(pokemon_list)
-        self.check_species_additions()
-        self.check_orphan_files()
-        print()
-
-        # Print results
-        self.print_results()
-
-    def check_pack_structure(self):
-        """Check basic pack structure"""
-        print("Checking pack structure...")
-
-        # Check resource pack
-        resource_pack = self.pack_path / "resource_pack"
-        if not resource_pack.exists():
-            self.errors.append("Missing resource_pack folder!")
-        else:
-            self.info.append("[OK] resource_pack folder exists")
-            self._check_mcmeta(resource_pack / "pack.mcmeta", "resource_pack", expected_format=34)
-
-        # Check behavior pack
-        behavior_pack = self.pack_path / "behavior_pack"
-        if not behavior_pack.exists():
-            self.errors.append("Missing behavior_pack folder!")
-        else:
-            self.info.append("[OK] behavior_pack folder exists")
-            self._check_mcmeta(behavior_pack / "pack.mcmeta", "behavior_pack", expected_format=48)
-
-        print()
-
-    def _check_mcmeta(self, mcmeta_file: Path, pack_label: str, expected_format: int):
-        """Validate a pack.mcmeta file exists and has the right pack_format for 1.21.1"""
-        if not mcmeta_file.exists():
-            self.errors.append(f"{pack_label}: Missing pack.mcmeta! Pack won't load without it.")
-            return
-        try:
-            with open(mcmeta_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            pack = data.get("pack")
-            if not isinstance(pack, dict):
-                self.errors.append(f"{pack_label}: pack.mcmeta missing 'pack' object")
-                return
-            fmt = pack.get("pack_format")
-            if fmt is None:
-                self.errors.append(f"{pack_label}: pack.mcmeta missing 'pack_format'")
-            elif fmt != expected_format:
-                self.warnings.append(
-                    f"{pack_label}: pack_format is {fmt}, expected {expected_format} for Minecraft 1.21.1")
+            # Check animations
+            if any(file.name.endswith(ext) for ext in self.animation_extensions):
+                files['animations'].append(file)
+            # Check models
+            elif any(file.name.endswith(ext) for ext in self.model_extensions):
+                if 'geo' in file.name.lower() or 'model' in file.name.lower():
+                    files['models'].append(file)
+                else:
+                    files['other'].append(file)
+            # Check textures
+            elif any(file.name.endswith(ext) for ext in self.texture_extensions):
+                files['textures'].append(file)
             else:
-                self.info.append(f"[OK] {pack_label}/pack.mcmeta valid (format {fmt})")
-            if "description" not in pack:
-                self.warnings.append(f"{pack_label}: pack.mcmeta has no 'description'")
-        except json.JSONDecodeError as e:
-            self.errors.append(f"{pack_label}: Invalid JSON in pack.mcmeta: {e}")
-        except Exception as e:
-            self.warnings.append(f"{pack_label}: Could not read pack.mcmeta: {e}")
+                files['other'].append(file)
 
-    def find_all_pokemon(self) -> List[str]:
-        """Find all Pokemon in the pack"""
-        pokemon = set()
+        return files
 
-        # Check species files
-        species_dir = self.pack_path / "behavior_pack" / "data" / "cobblemon" / "species" / "custom"
-        if species_dir.exists():
-            for file in species_dir.glob("*.json"):
-                pokemon.add(file.stem)
+    def create_species_json(self, pokemon_name: str, config: Dict) -> Dict:
+        """Create species definition with customization options"""
+        pokemon_lower = pokemon_name.lower()
 
-        return sorted(list(pokemon))
+        # Parse moves if provided
+        moves = []
+        if config.get('moves'):
+            moves = [m.strip() for m in config['moves'].split(',')]
 
-    def check_pokemon(self, pokemon_name: str):
-        """Check all files for a specific Pokemon"""
-        print(f"Checking {pokemon_name.upper()}...")
-
-        errors_found = False
-
-        # CRITICAL: Check for case sensitivity issues
-        if pokemon_name != pokemon_name.lower():
-            self.errors.append(f"{pokemon_name}: CRITICAL! Pokemon name has uppercase letters")
-            self.errors.append(f"  All Pokemon names must be lowercase: '{pokemon_name.lower()}'")
-            errors_found = True
-
-        # CRITICAL: Check for special characters
-        import re
-        if not re.match(r'^[a-z0-9_]+$', pokemon_name):
-            self.errors.append(f"{pokemon_name}: CRITICAL! Pokemon name contains invalid characters")
-            self.errors.append(f"  Only lowercase letters, numbers, and underscores allowed")
-            errors_found = True
-
-        # Check species file
-        if not self.check_species_file(pokemon_name):
-            errors_found = True
-
-        # Check model file
-        if not self.check_model_file(pokemon_name):
-            errors_found = True
-
-        # Check animation file
-        if not self.check_animation_file(pokemon_name):
-            errors_found = True
-
-        # Check texture files
-        if not self.check_texture_files(pokemon_name):
-            errors_found = True
-
-        # Check poser file
-        if not self.check_poser_file(pokemon_name):
-            errors_found = True
-
-        # Check resolver file
-        if not self.check_resolver_file(pokemon_name):
-            errors_found = True
-
-        # Check spawn file
-        if not self.check_spawn_file(pokemon_name):
-            errors_found = True
-
-        if not errors_found:
-            print(f"   [OK] All checks passed!\n")
+        # Parse abilities if provided
+        abilities = []
+        if config.get('abilities'):
+            abilities = [a.strip() for a in config['abilities'].split(',')]
+            print(f"  NOTE: Abilities configured: {abilities}")
         else:
-            print(f"   WARNING: Issues found (see below)\n")
+            print(f"  WARNING: No abilities specified! Pokémon will fail to spawn!")
+            print(f"     Use --abilities to add abilities (e.g., --abilities \"blaze,h:solar_power\")")
 
-    def check_species_file(self, pokemon_name: str) -> bool:
-        """Check species JSON file"""
-        species_file = self.pack_path / "behavior_pack" / "data" / "cobblemon" / "species" / "custom" / f"{pokemon_name}.json"
+        # Parse types
+        primary_type = config.get('primary_type', 'normal')
+        secondary_type = config.get('secondary_type')
 
+        # Get labels - add legendary if flagged
+        labels = config.get('labels', ['custom'])
+        if config.get('legendary') and 'legendary' not in labels:
+            labels.append('legendary')
+
+        return {
+            "implemented": True,
+            "name": pokemon_lower,
+            "labels": labels,
+            "pokedex": [
+                f"cobblemon.species.{pokemon_lower}.desc1",
+                f"cobblemon.species.{pokemon_lower}.desc2"
+            ],
+            "nationalPokedexNumber": config['pokedex_number'],
+            "primaryType": primary_type,
+            "secondaryType": secondary_type,
+            "baseStats": {
+                "hp": config.get('hp', 50),
+                "attack": config.get('attack', 50),
+                "defence": config.get('defence', 50),
+                "special_attack": config.get('special_attack', 50),
+                "special_defence": config.get('special_defence', 50),
+                "speed": config.get('speed', 50)
+            },
+            "catchRate": config.get('catch_rate', 45),
+            "maleRatio": config.get('male_ratio', 0.5),
+            "baseExperienceYield": config.get('base_exp', 100),
+            "experienceGroup": config.get('exp_group', 'medium_fast'),
+            "eggCycles": config.get('egg_cycles', 20),
+            "eggGroups": [config.get('egg_group', 'field')],
+            "baseFriendship": config.get('friendship', 50),
+            "evYield": {
+                "hp": config.get('ev_hp', 1),
+                "attack": config.get('ev_attack', 0),
+                "defence": config.get('ev_defence', 0),
+                "special_attack": config.get('ev_sp_attack', 0),
+                "special_defence": config.get('ev_sp_defence', 0),
+                "speed": config.get('ev_speed', 0)
+            },
+            "height": config.get('height', 10),
+            "weight": config.get('weight', 100),
+            "aspects": [],
+            "cannotDynamax": False,
+            "drops": {
+                "amount": "1-2",
+                "entries": []
+            },
+            "moves": moves,
+            "abilities": abilities,
+            "evolutions": self._build_evolutions(pokemon_lower, config),
+            "preEvolution": config.get('pre_evolution'),
+            "behaviour": {
+                "moving": {
+                    # canLook must be false if no head bone, otherwise true by default
+                    "canLook": False if (config.get('head_bone', 'head').lower() == 'none') else config.get('can_look',
+                                                                                                            True),
+                    "fly": {
+                        "canFly": config.get('can_fly', False)
+                    },
+                    "swim": {
+                        "swimSpeed": 0.3,
+                        "canSwimInWater": config.get('can_swim', False),
+                        "canBreatheUnderwater": config.get('breathe_underwater', False)
+                    }
+                }
+            }
+        }
+
+    def _build_evolutions(self, pokemon_lower: str, config: Dict) -> list:
+        """Build evolutions list from config"""
+        if not config.get('evo_target'):
+            return []
+
+        evo_target = config['evo_target'].lower()
+        evo_method = config.get('evo_method', 'level_up')
+
+        evolution = {
+            "id": f"{pokemon_lower}_{evo_target}",
+            "variant": evo_method,
+            "result": evo_target,
+            "consumeHeldItem": False,
+            "learnableMoves": [],
+            "requirements": []
+        }
+
+        if evo_method == 'level_up':
+            evolution["requirements"].append({
+                "variant": "level",
+                "minLevel": config.get('evo_level', 36)
+            })
+        elif evo_method == 'item_interact':
+            evo_item = config.get('evo_item', 'minecraft:stone')
+            evolution["requiredContext"] = evo_item
+        elif evo_method == 'trade':
+            if config.get('evo_item'):
+                evolution["requirements"].append({
+                    "variant": "held_item",
+                    "item": config['evo_item']
+                })
+
+        return [evolution]
+
+    def create_poser_json(self, pokemon_name: str, config: Dict) -> Dict:
+        """Create poser configuration"""
+        pokemon_lower = pokemon_name.lower()
+
+        # Check if head bone exists
+        has_head_bone = config.get('head_bone', 'head').lower() != 'none'
+
+        # Build base animations for standing pose
+        standing_animations = []
+        if has_head_bone:
+            standing_animations.append("look")
+        standing_animations.append(f"bedrock({pokemon_lower}, ground_idle)")
+
+        # Build poses based on movement type
+        poses = {
+            "standing": {
+                "poseName": "standing",
+                "transformTicks": 10,
+                "poseTypes": ["STAND", "NONE", "PORTRAIT", "PROFILE"],
+                "animations": standing_animations
+            },
+            "walking": {
+                "poseName": "walking",
+                "transformTicks": 10,
+                "poseTypes": ["WALK"],
+                "animations": [f"bedrock({pokemon_lower}, ground_walk)"]
+            },
+            "sleep": {
+                "poseName": "sleep",
+                "transformTicks": 10,
+                "poseTypes": ["SLEEP"],
+                "animations": [f"bedrock({pokemon_lower}, sleep)"]
+            }
+        }
+
+        # Add water poses if it can swim
+        if config.get('can_swim', False):
+            poses["floating"] = {
+                "poseName": "floating",
+                "transformTicks": 10,
+                "poseTypes": ["FLOAT"],
+                "animations": [f"bedrock({pokemon_lower}, water_idle)"]
+            }
+            poses["swimming"] = {
+                "poseName": "swimming",
+                "transformTicks": 10,
+                "poseTypes": ["SWIM"],
+                "animations": [f"bedrock({pokemon_lower}, water_swim)"]
+            }
+
+        # Add flying poses if it can fly
+        if config.get('can_fly', False):
+            poses["flying"] = {
+                "poseName": "flying",
+                "transformTicks": 10,
+                "poseTypes": ["FLY"],
+                "animations": [f"bedrock({pokemon_lower}, air_fly)"]
+            }
+            poses["hovering"] = {
+                "poseName": "hovering",
+                "transformTicks": 10,
+                "poseTypes": ["HOVER"],
+                "animations": [f"bedrock({pokemon_lower}, air_idle)"]
+            }
+
+        result = {
+            "portraitScale": config.get('portrait_scale', 1.25),
+            "portraitTranslation": [0, 0.5, 0],
+            "profileScale": config.get('profile_scale', 0.8),
+            "profileTranslation": [0, 0.4, 0],
+            "faint": f"bedrock({pokemon_lower}, faint)",
+            "poses": poses
+        }
+
+        # Only add head bone if specified (some models don't have a head)
+        head_bone = config.get('head_bone', 'head')
+        if head_bone and head_bone.lower() != 'none':
+            result["head"] = head_bone
+        else:
+            # No head bone - canLook will be automatically set to false in species JSON
+            pass
+
+        return result
+
+    def create_resolver_json(self, pokemon_name: str) -> Dict:
+        """Create model resolver with correct texture paths"""
+        pokemon_lower = pokemon_name.lower()
+        return {
+            "species": f"cobblemon:{pokemon_lower}",
+            "order": 0,
+            "variations": [
+                {
+                    "aspects": [],
+                    "poser": f"cobblemon:{pokemon_lower}",
+                    "model": f"cobblemon:{pokemon_lower}.geo",
+                    # Correct path format that ACTUALLY works
+                    "texture": f"cobblemon:textures/pokemon/{pokemon_lower}/{pokemon_lower}.png",
+                    "layers": []
+                },
+                {
+                    "aspects": ["shiny"],
+                    "poser": f"cobblemon:{pokemon_lower}",
+                    "model": f"cobblemon:{pokemon_lower}.geo",
+                    # Shiny variant with full path
+                    "texture": f"cobblemon:textures/pokemon/{pokemon_lower}/{pokemon_lower}_shiny.png",
+                    "layers": []
+                }
+            ]
+        }
+
+    def create_spawn_pool_json(self, pokemon_name: str, config: Dict) -> Dict:
+        """Create spawn pool configuration"""
+        pokemon_lower = pokemon_name.lower()
+
+        # Determine spawn context based on abilities
+        context = "grounded"
+        presets = ["natural"]
+
+        if config.get('can_swim', False):
+            context = "submerged"
+            presets = ["underwater"]
+        elif config.get('can_fly', False):
+            context = "grounded"  # Still spawns on ground but can fly
+            presets = ["natural"]
+
+        return {
+            "enabled": True,
+            "neededInstalledMods": [],
+            "neededUninstalledMods": [],
+            "spawns": [
+                {
+                    "id": f"{pokemon_lower}-1",
+                    "pokemon": pokemon_lower,
+                    "presets": presets,
+                    "type": "pokemon",
+                    "context": context,
+                    "bucket": config.get('rarity', 'common'),
+                    "level": config.get('spawn_level', '5-30'),
+                    "weight": config.get('spawn_weight', 10.0),
+                    "condition": {
+                        "canSeeSky": config.get('spawn_surface', True),
+                        "biomes": config.get('spawn_biomes', ['#minecraft:is_overworld']).split(',') if isinstance(
+                            config.get('spawn_biomes', '#minecraft:is_overworld'), str) else config.get('spawn_biomes',
+                                                                                                        ['#minecraft:is_overworld'])
+                    }
+                }
+            ]
+        }
+
+    def validate_animations(self, anim_file: Path, pokemon_name: str):
+        """Validate animation file has required animations"""
+        try:
+            with open(anim_file, 'r') as f:
+                anim_data = json.load(f)
+
+            required_anims = ['ground_idle', 'ground_walk']
+            found_anims = []
+
+            if 'animations' in anim_data:
+                for anim_key in anim_data['animations'].keys():
+                    # Extract animation name from key like "animation.pokemon.ground_idle"
+                    if '.' in anim_key:
+                        anim_name = anim_key.split('.')[-1]
+                        found_anims.append(anim_name)
+
+            missing = [anim for anim in required_anims if anim not in found_anims]
+
+            if missing:
+                print(f"\nWARNING: Missing recommended animations: {', '.join(missing)}")
+                print(f"   Your Pokémon may not animate properly!")
+                print(f"   Add these animations in Blockbench:")
+                for anim in missing:
+                    print(f"   - animation.{pokemon_name}.{anim}")
+            else:
+                print(f"  [OK] Animation validation passed")
+
+        except Exception as e:
+            print(f"  WARNING: Could not validate animations: {e}")
+
+    def organize_files(self, pokemon_name: str, files: Dict[str, List[Path]]):
+        """Organize files into resource pack"""
+        print(f"\nOrganizing files for {pokemon_name}...")
+
+        pokemon_lower = pokemon_name.lower()
+
+        # Validate animation file if present
+        if files['animations']:
+            self.validate_animations(files['animations'][0], pokemon_lower)
+
+        # Copy animations
+        if files['animations']:
+            dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_lower
+            for anim_file in files['animations']:
+                dest_file = dest_dir / f"{pokemon_lower}.animation.json"  # Use .animation.json NOT _animation.json
+                shutil.copy2(anim_file, dest_file)
+                print(f"  [OK] Animation: {anim_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
+
+        # Copy models and fix identifier
+        if files['models']:
+            dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_lower
+            for model_file in files['models']:
+                dest_file = dest_dir / f"{pokemon_lower}.geo.json"  # Use .geo.json NOT _geo.json
+
+                # Read model and fix identifier if needed
+                with open(model_file, 'r') as f:
+                    model_data = json.load(f)
+
+                # Fix the identifier to match Cobblemon's requirements
+                if 'minecraft:geometry' in model_data:
+                    for geom in model_data['minecraft:geometry']:
+                        if 'description' in geom and 'identifier' in geom['description']:
+                            old_id = geom['description']['identifier']
+                            new_id = f"geometry.{pokemon_lower}"
+                            geom['description']['identifier'] = new_id
+                            if old_id != new_id:
+                                print(f"  NOTE: Fixed model identifier: {old_id} → {new_id}")
+
+                # Write fixed model
+                with open(dest_file, 'w') as f:
+                    json.dump(model_data, f, indent=2)
+
+                print(f"  [OK] Model: {model_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
+
+        # Copy textures (detect shiny by filename rather than by directory order)
+        if files['textures']:
+            dest_dir = self.resource_pack_dir / "assets" / "cobblemon" / "textures" / "pokemon" / pokemon_lower
+            shiny_files = [t for t in files['textures'] if 'shiny' in t.name.lower()]
+            normal_files = [t for t in files['textures'] if 'shiny' not in t.name.lower()]
+
+            # Fallback so the Pokémon always gets a base texture
+            if not normal_files:
+                normal_files = shiny_files
+
+            copied = set()
+
+            # Base (non-shiny) texture
+            base_src = normal_files[0]
+            base_dest = dest_dir / f"{pokemon_lower}.png"
+            shutil.copy2(base_src, base_dest)
+            copied.add(base_src)
+            print(f"  [OK] Texture: {base_src.name} → {base_dest.relative_to(self.resource_pack_dir)}")
+
+            # Shiny texture (only if a distinct shiny file exists)
+            if shiny_files and shiny_files[0] not in copied:
+                shiny_dest = dest_dir / f"{pokemon_lower}_shiny.png"
+                shutil.copy2(shiny_files[0], shiny_dest)
+                copied.add(shiny_files[0])
+                print(f"  [OK] Texture: {shiny_files[0].name} → {shiny_dest.relative_to(self.resource_pack_dir)}")
+
+            # Any remaining textures keep their original names
+            for texture_file in files['textures']:
+                if texture_file in copied:
+                    continue
+                dest_file = dest_dir / texture_file.name
+                shutil.copy2(texture_file, dest_file)
+                print(f"  [OK] Texture: {texture_file.name} → {dest_file.relative_to(self.resource_pack_dir)}")
+
+        print("[OK] Files organized!")
+
+    def generate_pack_files(self, pokemon_name: str, config: Dict):
+        """Generate all pack configuration files"""
+        print(f"\n  Generating configuration files for {pokemon_name}...")
+
+        pokemon_lower = pokemon_name.lower()
+
+        # Resource pack.mcmeta (create if doesn't exist)
+        resource_mcmeta = self.resource_pack_dir / "pack.mcmeta"
+        if not resource_mcmeta.exists():
+            with open(resource_mcmeta, 'w') as f:
+                json.dump(self.create_pack_mcmeta('resource'), f, indent=2)
+            print(f"  [OK] Resource pack.mcmeta created (format {self.RESOURCE_PACK_FORMAT})")
+        else:
+            print(f"  NOTE: Resource pack.mcmeta already exists (keeping existing)")
+
+        # Behavior pack.mcmeta (create if doesn't exist)
+        behavior_mcmeta = self.behavior_pack_dir / "pack.mcmeta"
+        if not behavior_mcmeta.exists():
+            with open(behavior_mcmeta, 'w') as f:
+                json.dump(self.create_pack_mcmeta('behavior'), f, indent=2)
+            print(f"  [OK] Behavior pack.mcmeta created (format {self.DATA_PACK_FORMAT})")
+        else:
+            print(f"  NOTE: Behavior pack.mcmeta already exists (keeping existing)")
+
+        # Species definition
+        species_file = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom" / f"{pokemon_lower}.json"
+        with open(species_file, 'w') as f:
+            json.dump(self.create_species_json(pokemon_name, config), f, indent=2)
+        print(f"  [OK] Species definition")
+
+        # Poser
+        poser_file = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "posers" / f"{pokemon_lower}.json"
+        with open(poser_file, 'w') as f:
+            json.dump(self.create_poser_json(pokemon_name, config), f, indent=2)
+        print(f"  [OK] Poser configuration")
+
+        # Resolver
+        resolver_file = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers" / f"0_{pokemon_lower}_base.json"
+        with open(resolver_file, 'w') as f:
+            json.dump(self.create_resolver_json(pokemon_name), f, indent=2)
+        print(f"  [OK] Model resolver")
+
+        # Spawn pool
+        spawn_file = self.behavior_pack_dir / "data" / "cobblemon" / "spawn_pool_world" / f"{pokemon_lower}.json"
+        with open(spawn_file, 'w') as f:
+            json.dump(self.create_spawn_pool_json(pokemon_name, config), f, indent=2)
+        print(f"  [OK] Spawn pool")
+
+        # Language file - MERGE with existing if present
+        lang_file = self.resource_pack_dir / "assets" / "cobblemon" / "lang" / "en_us.json"
+        new_lang_data = {
+            f"cobblemon.species.{pokemon_lower}.name": pokemon_name,
+            f"cobblemon.species.{pokemon_lower}.desc1": config.get('desc1',
+                                                                   f"A mysterious Pokémon known as {pokemon_name}."),
+            f"cobblemon.species.{pokemon_lower}.desc2": config.get('desc2',
+                                                                   "Customize this description in the language file!")
+        }
+
+        # Load existing language file and merge
+        if lang_file.exists():
+            with open(lang_file, 'r') as f:
+                existing_lang = json.load(f)
+            existing_lang.update(new_lang_data)
+            with open(lang_file, 'w') as f:
+                json.dump(existing_lang, f, indent=2, sort_keys=True)
+            print(f"  [OK] Language file updated (merged with existing)")
+        else:
+            with open(lang_file, 'w') as f:
+                json.dump(new_lang_data, f, indent=2)
+            print(f"  [OK] Language file created")
+
+        print("[OK] Configuration files generated!")
+
+    def cleanup_source_files(self, files: Dict[str, List[Path]]):
+        """Remove source files after copying (NEVER deletes .py files or files outside base_dir)"""
+        print("\nCleaning up source files...")
+
+        files_to_remove = []
+        for file_list in files.values():
+            files_to_remove.extend(file_list)
+
+        for file in files_to_remove:
+            # Safety checks - NEVER delete:
+            # 1. Python files
+            # 2. Files outside the base directory
+            # 3. The script itself
+            if file.suffix == '.py':
+                print(f"  WARNING: Skipped (Python file): {file.name}")
+                continue
+
+            if not str(file).startswith(str(self.base_dir)):
+                print(f"  WARNING: Skipped (outside base directory): {file.name}")
+                continue
+
+            if file.exists():
+                file.unlink()
+                print(f"  [OK] Removed: {file.name}")
+
+        print("[OK] Cleanup complete!")
+
+    def show_current_pokemon(self):
+        """Display all Pokémon currently in the packs"""
+        print(f"\n{'=' * 70}")
+        print("CURRENT POKÉMON IN PACKS")
+        print(f"{'=' * 70}\n")
+
+        # Check if packs exist
+        species_dir = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom"
+
+        if not species_dir.exists():
+            print("ERROR: No packs found!")
+            print(f"   Location checked: {species_dir}")
+            print("\nTIP: Generate your first Pokémon to create the packs!")
+            return
+
+        # Find all species files
+        species_files = list(species_dir.glob("*.json"))
+
+        if not species_files:
+            print("ERROR: No Pokémon found in packs!")
+            print(f"   Location: {species_dir}")
+            return
+
+        print(f"Found {len(species_files)} Pokémon:\n")
+
+        # Parse and display each Pokémon
+        pokemon_list = []
+        for species_file in sorted(species_files):
+            try:
+                with open(species_file, 'r') as f:
+                    data = json.load(f)
+
+                name = data.get('name', species_file.stem).capitalize()
+                pokedex_num = data.get('nationalPokedexNumber', '???')
+                primary_type = data.get('primaryType', '???').upper()
+                secondary_type = data.get('secondaryType', '')
+
+                # Get stats
+                stats = data.get('baseStats', {})
+                hp = stats.get('hp', 0)
+                atk = stats.get('attack', 0)
+                defe = stats.get('defence', 0)
+                spatk = stats.get('special_attack', 0)
+                spdef = stats.get('special_defence', 0)
+                speed = stats.get('speed', 0)
+                total = hp + atk + defe + spatk + spdef + speed
+
+                # Check if legendary
+                labels = data.get('labels', [])
+                is_legendary = 'legendary' in labels
+
+                # Get catch rate
+                catch_rate = data.get('catchRate', 45)
+
+                pokemon_list.append({
+                    'name': name,
+                    'number': pokedex_num,
+                    'primary_type': primary_type,
+                    'secondary_type': secondary_type,
+                    'total': total,
+                    'hp': hp,
+                    'atk': atk,
+                    'def': defe,
+                    'spatk': spatk,
+                    'spdef': spdef,
+                    'speed': speed,
+                    'legendary': is_legendary,
+                    'catch_rate': catch_rate
+                })
+
+            except Exception as e:
+                print(f"WARNING: Error reading {species_file.name}: {e}")
+
+        # Display in table format
+        print(f"{'#':<6} {'Name':<15} {'Type':<20} {'BST':<6} {'Legendary':<10} {'Catch':<6}")
+        print("-" * 70)
+
+        for p in sorted(pokemon_list, key=lambda x: x['number']):
+            type_str = p['primary_type']
+            if p['secondary_type']:
+                type_str += f"/{p['secondary_type'].upper()}"
+
+            legendary_mark = "YES" if p['legendary'] else "No"
+
+            print(
+                f"#{p['number']:<5} {p['name']:<15} {type_str:<20} {p['total']:<6} {legendary_mark:<10} {p['catch_rate']:<6}")
+
+        # Summary stats
+        print("\n" + "=" * 70)
+        print(f"SUMMARY:")
+        print(f"   Total Pokémon: {len(pokemon_list)}")
+        legendary_count = sum(1 for p in pokemon_list if p['legendary'])
+        print(f"   Legendary: {legendary_count}")
+        print(f"   Regular: {len(pokemon_list) - legendary_count}")
+
+        # Average BST
+        avg_bst = sum(p['total'] for p in pokemon_list) // len(pokemon_list) if pokemon_list else 0
+        print(f"   Average BST: {avg_bst}")
+
+        # Type distribution
+        type_counts = {}
+        for p in pokemon_list:
+            primary = p['primary_type']
+            type_counts[primary] = type_counts.get(primary, 0) + 1
+            if p['secondary_type']:
+                secondary = p['secondary_type'].upper()
+                type_counts[secondary] = type_counts.get(secondary, 0) + 1
+
+        print(f"\n   Type Distribution:")
+        for ptype, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
+            print(f"      {ptype}: {count}")
+
+        print(f"\n{'=' * 70}")
+        print(f"Pack Locations:")
+        print(f"   Resource: {self.resource_pack_dir}")
+        print(f"   Behavior: {self.behavior_pack_dir}")
+        print(f"{'=' * 70}\n")
+
+    def edit_pokemon(self, pokemon_name: str, args):
+        """Edit an existing Pokémon's stats and properties"""
+        print(f"\n{'=' * 70}")
+        print(f"EDITING POKÉMON: {pokemon_name.upper()}")
+        print(f"{'=' * 70}\n")
+
+        pokemon_lower = pokemon_name.lower()
+        species_file = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom" / f"{pokemon_lower}.json"
+
+        # Check if Pokémon exists
         if not species_file.exists():
-            self.errors.append(f"{pokemon_name}: Missing species file: {species_file}")
-            return False
+            print(f"ERROR: Pokémon '{pokemon_name}' not found!")
+            print(f"   Looked for: {species_file}")
+            print(f"\nTIP: Use --show-current-pokemon to see all Pokémon")
+            return
 
+        # Load existing data
         try:
             with open(species_file, 'r') as f:
                 data = json.load(f)
+        except Exception as e:
+            print(f"ERROR: reading {pokemon_name}: {e}")
+            return
 
-            # Check required fields
-            required_fields = ["name", "nationalPokedexNumber", "primaryType", "baseStats"]
-            for field in required_fields:
-                if field not in data:
-                    self.errors.append(f"{pokemon_name}: Missing required field '{field}' in species file")
+        print(f"Current Stats for {pokemon_name.capitalize()}:")
+        current_stats = data.get('baseStats', {})
+        current_hp = current_stats.get('hp', 0)
+        current_atk = current_stats.get('attack', 0)
+        current_def = current_stats.get('defence', 0)
+        current_spatk = current_stats.get('special_attack', 0)
+        current_spdef = current_stats.get('special_defence', 0)
+        current_speed = current_stats.get('speed', 0)
+        current_total = current_hp + current_atk + current_def + current_spatk + current_spdef + current_speed
 
-            # Check for duplicate dex numbers
-            if "nationalPokedexNumber" in data:
-                dex_num = data["nationalPokedexNumber"]
-                if dex_num in self.dex_numbers:
-                    self.errors.append(f"{pokemon_name}: ERROR: DUPLICATE DEX NUMBER #{dex_num}!")
-                    self.errors.append(f"  Already used by: {self.dex_numbers[dex_num]}")
-                else:
-                    self.dex_numbers[dex_num] = pokemon_name
+        print(f"   HP: {current_hp}")
+        print(f"   Attack: {current_atk}")
+        print(f"   Defence: {current_def}")
+        print(f"   Sp. Attack: {current_spatk}")
+        print(f"   Sp. Defence: {current_spdef}")
+        print(f"   Speed: {current_speed}")
+        print(f"   TOTAL BST: {current_total}")
+        print(
+            f"   Type: {data.get('primaryType', 'normal').upper()}/{data.get('secondaryType', '').upper() if data.get('secondaryType') else 'None'}")
+        print(f"   Catch Rate: {data.get('catchRate', 45)}")
+        print(f"   Legendary: {'YES' if 'legendary' in data.get('labels', []) else 'No'}")
 
-            # Check types
-            if "primaryType" in data:
-                ptype = data["primaryType"]
-                if ptype is None:
-                    self.errors.append(f"{pokemon_name}: primaryType is null!")
-                else:
-                    ptype = ptype.lower()
-                    if ptype not in self.VALID_TYPES:
-                        self.warnings.append(f"{pokemon_name}: Invalid primary type '{ptype}'")
+        # Track what was changed
+        changes_made = []
 
-            if "secondaryType" in data:
-                stype = data["secondaryType"]
-                if stype is None:
-                    # Secondary type can be null (single-type Pokemon)
+        # Update stats if provided (compare against current value so setting to 50 works)
+        if args.hp is not None and args.hp != current_hp:
+            data['baseStats']['hp'] = args.hp
+            changes_made.append(f"HP: {current_hp} → {args.hp}")
+
+        if args.attack is not None and args.attack != current_atk:
+            data['baseStats']['attack'] = args.attack
+            changes_made.append(f"Attack: {current_atk} → {args.attack}")
+
+        if args.defence is not None and args.defence != current_def:
+            data['baseStats']['defence'] = args.defence
+            changes_made.append(f"Defence: {current_def} → {args.defence}")
+
+        if args.special_attack is not None and args.special_attack != current_spatk:
+            data['baseStats']['special_attack'] = args.special_attack
+            changes_made.append(f"Sp. Attack: {current_spatk} → {args.special_attack}")
+
+        if args.special_defence is not None and args.special_defence != current_spdef:
+            data['baseStats']['special_defence'] = args.special_defence
+            changes_made.append(f"Sp. Defence: {current_spdef} → {args.special_defence}")
+
+        if args.speed is not None and args.speed != current_speed:
+            data['baseStats']['speed'] = args.speed
+            changes_made.append(f"Speed: {current_speed} → {args.speed}")
+
+        # Update types if provided
+        if args.primary_type and args.primary_type != data.get('primaryType', 'normal'):
+            old_type = data.get('primaryType', 'normal')
+            data['primaryType'] = args.primary_type
+            changes_made.append(f"Primary Type: {old_type} → {args.primary_type}")
+
+        if args.secondary_type:
+            old_type = data.get('secondaryType', 'None')
+            data['secondaryType'] = args.secondary_type
+            changes_made.append(f"Secondary Type: {old_type} → {args.secondary_type}")
+
+        # Update rarity
+        if args.rarity:
+            # Update spawn file
+            spawn_file = self.behavior_pack_dir / "data" / "cobblemon" / "spawn_pool_world" / f"{pokemon_lower}.json"
+            if spawn_file.exists():
+                try:
+                    with open(spawn_file, 'r') as f:
+                        spawn_data = json.load(f)
+                    old_rarity = spawn_data['spawns'][0].get('bucket', 'common')
+                    spawn_data['spawns'][0]['bucket'] = args.rarity
+                    with open(spawn_file, 'w') as f:
+                        json.dump(spawn_data, f, indent=2)
+                    changes_made.append(f"Rarity: {old_rarity} → {args.rarity}")
+                except Exception as e:
+                    print(f"WARNING: Could not update spawn rarity: {e}")
+
+        # Update legendary status
+        if args.legendary:
+            if 'legendary' not in data.get('labels', []):
+                data['labels'].append('legendary')
+                data['catchRate'] = 3
+                data['baseExperienceYield'] = 290
+                data['baseFriendship'] = 0
+                changes_made.append("Made legendary (catchRate=3, baseExp=290)")
+
+        # Update pokedex number if provided
+        if args.number is not None and args.number != data.get('nationalPokedexNumber'):
+            old_num = data.get('nationalPokedexNumber', '???')
+
+            # Warn if another species already uses this number
+            for other_file in species_file.parent.glob("*.json"):
+                if other_file == species_file:
+                    continue
+                try:
+                    with open(other_file, 'r') as f:
+                        other_data = json.load(f)
+                    if other_data.get('nationalPokedexNumber') == args.number:
+                        print(f"WARNING: Dex #{args.number} is already used by "
+                              f"'{other_data.get('name', other_file.stem)}'!")
+                except Exception:
                     pass
-                else:
-                    stype = stype.lower()
-                    if stype not in self.VALID_TYPES:
-                        self.warnings.append(f"{pokemon_name}: Invalid secondary type '{stype}'")
 
-            # Check base stats
-            if "baseStats" in data:
-                stats = data["baseStats"]
-                required_stats = ["hp", "attack", "defence", "special_attack", "special_defence", "speed"]
-                for stat in required_stats:
-                    if stat not in stats:
-                        self.errors.append(f"{pokemon_name}: Missing base stat '{stat}'")
+            data['nationalPokedexNumber'] = args.number
+            changes_made.append(f"Pokédex Number: #{old_num} → #{args.number}")
+
+        # Add/replace an evolution if provided
+        if args.evo_target:
+            evo_config = {
+                'evo_target': args.evo_target,
+                'evo_method': args.evo_method,
+                'evo_level': args.evo_level,
+                'evo_item': args.evo_item,
+            }
+            new_evos = self._build_evolutions(pokemon_lower, evo_config)
+
+            existing_evos = data.get('evolutions', []) or []
+            new_ids = {e['id'] for e in new_evos}
+            # Replace same-id evolution if present, keep other branches
+            kept = [e for e in existing_evos if e.get('id') not in new_ids]
+            replaced = len(existing_evos) - len(kept)
+            data['evolutions'] = kept + new_evos
+
+            evo_desc = f"{pokemon_lower} → {args.evo_target.lower()}"
+            if args.evo_method == 'level_up':
+                evo_desc += f" at level {args.evo_level}"
+            elif args.evo_method == 'item_interact':
+                evo_desc += f" with {args.evo_item or 'minecraft:stone'}"
+            elif args.evo_method == 'trade':
+                evo_desc += " by trading"
+                if args.evo_item:
+                    evo_desc += f" (holding {args.evo_item})"
+            action = "Replaced evolution" if replaced else "Added evolution"
+            changes_made.append(f"{action}: {evo_desc}")
+            if kept:
+                changes_made.append(f"  (kept {len(kept)} other evolution branch(es))")
+
+        # Remove all evolutions if requested
+        if getattr(args, 'remove_evolutions', False):
+            old_count = len(data.get('evolutions', []) or [])
+            if old_count:
+                data['evolutions'] = []
+                changes_made.append(f"Removed all evolutions ({old_count} removed)")
+            else:
+                print(f"NOTE: No evolutions to remove.")
+
+        # Edit head bone (updates BOTH species canLook and the poser file)
+        head_bone = getattr(args, 'head_bone', None)
+        if head_bone is not None:
+            no_head = head_bone.lower() == 'none'
+
+            # 1) Species: behaviour.moving.canLook
+            behaviour = data.setdefault('behaviour', {})
+            moving = behaviour.setdefault('moving', {})
+            moving['canLook'] = (not no_head) and (not getattr(args, 'no_look', False))
+
+            # 2) Poser: head field + look animation
+            poser_file = (self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" /
+                          "pokemon" / "posers" / f"{pokemon_lower}.json")
+            if poser_file.exists():
+                try:
+                    with open(poser_file, 'r') as f:
+                        poser_data = json.load(f)
+
+                    if no_head:
+                        # Delete head field entirely (never set to null!)
+                        poser_data.pop('head', None)
+                        # Strip "look" from every pose's animations
+                        for pose in poser_data.get('poses', {}).values():
+                            if isinstance(pose, dict) and isinstance(pose.get('animations'), list):
+                                pose['animations'] = [a for a in pose['animations']
+                                                      if str(a).strip().lower() != 'look']
+                        changes_made.append("Head bone: REMOVED (poser 'head' deleted, "
+                                            "'look' animations stripped, canLook=false)")
                     else:
-                        stat_value = stats[stat]
-                        if not isinstance(stat_value, (int, float)):
-                            self.errors.append(
-                                f"{pokemon_name}: Stat '{stat}' must be a number, got: {type(stat_value).__name__}")
-                        elif stat_value < 1:
-                            self.errors.append(f"{pokemon_name}: Stat '{stat}' is {stat_value} (must be at least 1)")
-                        elif stat_value > 255:
-                            self.warnings.append(f"{pokemon_name}: Stat '{stat}' is {stat_value} (over 255 is unusual)")
+                        poser_data['head'] = head_bone
+                        # Ensure standing pose has "look" so the head actually tracks
+                        standing = poser_data.get('poses', {}).get('standing')
+                        if isinstance(standing, dict) and isinstance(standing.get('animations'), list):
+                            if not any(str(a).strip().lower() == 'look' for a in standing['animations']):
+                                standing['animations'].insert(0, 'look')
+                        changes_made.append(f"Head bone: set to '{head_bone}' "
+                                            f"(canLook={moving['canLook']})")
 
-                # Calculate and warn about BST
-                if all(stat in stats for stat in required_stats):
-                    bst = sum(stats[stat] for stat in required_stats)
-                    if bst < 180:
-                        self.warnings.append(f"{pokemon_name}: Very low BST ({bst}) - weaker than Magikarp!")
-                    elif bst > 720:
-                        self.warnings.append(f"{pokemon_name}: Very high BST ({bst}) - stronger than Arceus!")
+                    with open(poser_file, 'w') as f:
+                        json.dump(poser_data, f, indent=2)
+                except Exception as e:
+                    print(f"WARNING: Could not update poser file: {e}")
+                    changes_made.append(f"canLook: {moving['canLook']} (species only — poser update FAILED)")
+            else:
+                print(f"WARNING: Poser file not found: {poser_file}")
+                print(f"   Updated species canLook only — fix the poser manually!")
+                changes_made.append(f"canLook: {moving['canLook']} (species only — no poser file found)")
 
-            # Check abilities
-            if "abilities" in data:
-                if not isinstance(data["abilities"], list):
-                    self.errors.append(f"{pokemon_name}: abilities must be an array")
-                elif len(data["abilities"]) == 0:
-                    self.warnings.append(f"{pokemon_name}: Empty abilities array (will cause spawn issues)")
-                else:
-                    # Validate ability names (strip underscores for comparison)
-                    for ability in data["abilities"]:
-                        ability_clean = ability.replace("h:", "").strip().lower().replace("_", "")
-                        if ability_clean not in self.COMMON_ABILITIES:
-                            self.warnings.append(f"{pokemon_name}: Unknown ability '{ability}' (might be a typo)")
+        # --no-look on its own: force canLook=false without touching the head bone
+        elif getattr(args, 'no_look', False):
+            behaviour = data.setdefault('behaviour', {})
+            moving = behaviour.setdefault('moving', {})
+            if moving.get('canLook') is not False:
+                moving['canLook'] = False
+                changes_made.append("canLook: false (head bone unchanged)")
 
-            # Check moves list
-            if "moves" in data:
-                if not isinstance(data["moves"], list):
-                    self.errors.append(f"{pokemon_name}: 'moves' must be an array, got {type(data['moves']).__name__}")
-                else:
-                    move_count = len(data["moves"])
-                    if move_count == 0:
-                        self.warnings.append(f"{pokemon_name}: No moves defined (Pokemon won't know any moves!)")
-                    elif move_count == 1 and data["moves"][0] in ("0:tackle", "1:tackle"):
-                        self.warnings.append(f"{pokemon_name}: Only has 'tackle' - this is likely a placeholder!")
+        # Edit height/weight if provided
+        if getattr(args, 'height', None) is not None and args.height != data.get('height'):
+            changes_made.append(f"Height: {data.get('height', '?')} → {args.height} decimeters")
+            data['height'] = args.height
+        if getattr(args, 'weight', None) is not None and args.weight != data.get('weight'):
+            changes_made.append(f"Weight: {data.get('weight', '?')} → {args.weight} hectograms")
+            data['weight'] = args.weight
 
-                    # Check move format and names
-                    for move in data["moves"]:
-                        if isinstance(move, str):
-                            if ":" not in move:
-                                self.errors.append(
-                                    f"{pokemon_name}: Invalid move format '{move}' - must be 'level:movename'")
-                            else:
-                                level, move_name = move.split(":", 1)
+        # Edit movement behaviors if flagged
+        if getattr(args, 'can_fly', False):
+            moving = data.setdefault('behaviour', {}).setdefault('moving', {})
+            if not moving.setdefault('fly', {}).get('canFly'):
+                moving['fly']['canFly'] = True
+                changes_made.append("Flight: enabled")
+        if getattr(args, 'can_swim', False) or getattr(args, 'breathe_underwater', False):
+            moving = data.setdefault('behaviour', {}).setdefault('moving', {})
+            swim = moving.setdefault('swim', {})
+            swim.setdefault('swimSpeed', 0.3)
+            if getattr(args, 'can_swim', False) and not swim.get('canSwimInWater'):
+                swim['canSwimInWater'] = True
+                changes_made.append("Swimming: enabled")
+            if getattr(args, 'breathe_underwater', False) and not swim.get('canBreatheUnderwater'):
+                swim['canBreatheUnderwater'] = True
+                changes_made.append("Underwater breathing: enabled")
 
-                                # Handle special prefixes (tm, egg, tutor)
-                                if level.lower() in ["tm", "egg", "tutor"]:
-                                    # These are valid non-numeric levels
-                                    pass
-                                else:
-                                    # Validate level number
-                                    try:
-                                        level_num = int(level)
-                                        if level_num < 0:
-                                            self.warnings.append(
-                                                f"{pokemon_name}: Move level {level_num} is negative")
-                                        elif level_num > 100:
-                                            self.warnings.append(f"{pokemon_name}: Move level {level_num} is over 100")
-                                    except ValueError:
-                                        self.errors.append(
-                                            f"{pokemon_name}: Move level '{level}' is not a valid number or prefix (use 'tm', 'egg', 'tutor', or a number)")
-
-                                # Validate move name (disabled by default - too many moves to track)
-                                # Uncomment to enable move name validation:
-                                # move_name_clean = move_name.lower().strip().replace("_", "")
-                                # if move_name_clean not in self.COMMON_MOVES:
-                                #     self.warnings.append(f"{pokemon_name}: Unknown move '{move_name}' (might be a typo or modded move)")
-
-            # Check catch rate
-            if "catchRate" in data:
-                catch_rate = data["catchRate"]
-                if not isinstance(catch_rate, (int, float)):
-                    self.errors.append(f"{pokemon_name}: catchRate must be a number")
-                elif catch_rate < 3:
-                    self.warnings.append(
-                        f"{pokemon_name}: catchRate {catch_rate} is very low (harder than legendaries!)")
-                elif catch_rate > 255:
-                    self.errors.append(f"{pokemon_name}: catchRate {catch_rate} exceeds maximum (255)")
-
-            # Check height and weight
-            if "height" in data:
-                height = data["height"]
-                if height <= 0:
-                    self.warnings.append(f"{pokemon_name}: height {height} is zero or negative!")
-                elif height < 1:
-                    self.warnings.append(f"{pokemon_name}: height {height} is very small (under 0.1m)")
-                elif height > 200:
-                    self.warnings.append(f"{pokemon_name}: height {height} is enormous (over 20m!)")
-
-            if "weight" in data:
-                weight = data["weight"]
-                if weight <= 0:
-                    self.warnings.append(f"{pokemon_name}: weight {weight} is zero or negative!")
-                elif weight > 10000:
-                    self.warnings.append(f"{pokemon_name}: weight {weight} is extremely heavy (over 1000kg!)")
-
-            # Check egg groups
-            if "eggGroups" in data:
-                if isinstance(data["eggGroups"], list):
-                    for egg_group in data["eggGroups"]:
-                        if egg_group.lower() not in self.VALID_EGG_GROUPS:
-                            self.warnings.append(f"{pokemon_name}: Unknown egg group '{egg_group}'")
-
-            # NEW v2.1: Validate experienceGroup
-            if "experienceGroup" in data:
-                exp_group = data["experienceGroup"]
-                if exp_group not in self.VALID_EXP_GROUPS:
-                    self.warnings.append(f"{pokemon_name}: Unknown experienceGroup '{exp_group}'")
-                    self.warnings.append(f"  Valid: {', '.join(sorted(self.VALID_EXP_GROUPS))}")
-
-            # NEW v2.1: Validate maleRatio
-            if "maleRatio" in data:
-                male_ratio = data["maleRatio"]
-                if isinstance(male_ratio, (int, float)):
-                    if not (-1 <= male_ratio <= 1):
-                        self.warnings.append(
-                            f"{pokemon_name}: maleRatio {male_ratio} out of range (-1 genderless to 1 all-male)")
-                else:
-                    self.errors.append(f"{pokemon_name}: maleRatio must be a number")
-
-            # NEW v2.1: Validate evolution structure + cache targets for cross-check
-            if "evolutions" in data:
-                evolutions = data["evolutions"]
-                if isinstance(evolutions, list):
-                    self.species_evolutions[pokemon_name] = evolutions
-                    for i, evo in enumerate(evolutions):
-                        if not isinstance(evo, dict):
-                            self.errors.append(f"{pokemon_name}: Evolution #{i + 1} is not an object")
+        # Edit spawn level / biomes if provided (applies to ALL spawn entries)
+        spawn_level = getattr(args, 'spawn_level', None)
+        spawn_biomes = getattr(args, 'spawn_biomes', None)
+        if spawn_level is not None or spawn_biomes is not None:
+            spawn_file = (self.behavior_pack_dir / "data" / "cobblemon" /
+                          "spawn_pool_world" / f"{pokemon_lower}.json")
+            if spawn_file.exists():
+                try:
+                    with open(spawn_file, 'r') as f:
+                        spawn_data = json.load(f)
+                    entries = spawn_data.get('spawns', [])
+                    for entry in entries:
+                        if not isinstance(entry, dict):
                             continue
-                        if "result" not in evo:
-                            self.errors.append(f"{pokemon_name}: Evolution #{i + 1} missing 'result'")
-                        if "variant" not in evo:
-                            self.errors.append(f"{pokemon_name}: Evolution #{i + 1} missing 'variant'")
-                        elif evo["variant"] == "level_up":
-                            reqs = evo.get("requirements", [])
-                            has_level = any(
-                                isinstance(r, dict) and r.get("variant") == "level" for r in reqs)
-                            if not has_level:
-                                self.warnings.append(
-                                    f"{pokemon_name}: level_up evolution to '{evo.get('result', '?')}' "
-                                    f"has no level requirement (will evolve at ANY level-up!)")
-                        elif evo["variant"] == "item_interact" and "requiredContext" not in evo:
-                            self.warnings.append(
-                                f"{pokemon_name}: item_interact evolution to '{evo.get('result', '?')}' "
-                                f"has no 'requiredContext' item")
+                        if spawn_level is not None:
+                            entry['level'] = spawn_level
+                        if spawn_biomes is not None:
+                            entry.setdefault('condition', {})['biomes'] = [
+                                b.strip() for b in spawn_biomes.split(',')]
+                    with open(spawn_file, 'w') as f:
+                        json.dump(spawn_data, f, indent=2)
+                    n = len(entries)
+                    if spawn_level is not None:
+                        changes_made.append(f"Spawn level: {spawn_level} ({n} entr{'y' if n == 1 else 'ies'})")
+                    if spawn_biomes is not None:
+                        changes_made.append(f"Spawn biomes: {spawn_biomes} ({n} entr{'y' if n == 1 else 'ies'})")
+                except Exception as e:
+                    print(f"WARNING: Could not update spawn file: {e}")
+            else:
+                print(f"WARNING: Spawn file not found: {spawn_file}")
+
+        # Edit Pokédex descriptions if provided (lang file)
+        desc1 = getattr(args, 'desc1', None)
+        desc2 = getattr(args, 'desc2', None)
+        if desc1 is not None or desc2 is not None:
+            lang_file = (self.resource_pack_dir / "assets" / "cobblemon" /
+                         "lang" / "en_us.json")
+            try:
+                lang_data = {}
+                if lang_file.exists():
+                    with open(lang_file, 'r', encoding='utf-8') as f:
+                        lang_data = json.load(f)
                 else:
-                    self.errors.append(f"{pokemon_name}: 'evolutions' must be an array")
+                    lang_file.parent.mkdir(parents=True, exist_ok=True)
+                if desc1 is not None:
+                    lang_data[f"cobblemon.species.{pokemon_lower}.desc1"] = desc1
+                    changes_made.append(f"Pokédex desc1 updated")
+                if desc2 is not None:
+                    lang_data[f"cobblemon.species.{pokemon_lower}.desc2"] = desc2
+                    changes_made.append(f"Pokédex desc2 updated")
+                with open(lang_file, 'w', encoding='utf-8') as f:
+                    json.dump(lang_data, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"WARNING: Could not update lang file: {e}")
 
-            # NEW v2.1: Cache declared pokedex lang keys for lang file check
-            if isinstance(data.get("pokedex"), list):
-                self.species_pokedex_keys[pokemon_name] = [
-                    k for k in data["pokedex"] if isinstance(k, str)]
+        # Edit preEvolution field if provided
+        pre_evo = getattr(args, 'pre_evolution', None)
+        if pre_evo is not None and data.get('preEvolution') != pre_evo.lower():
+            changes_made.append(f"Pre-evolution: {data.get('preEvolution', 'none')} → {pre_evo.lower()}")
+            data['preEvolution'] = pre_evo.lower()
+            print(f"NOTE: preEvolution is informational. For {pre_evo} to actually evolve")
+            print(f"   into {pokemon_lower}, also run:")
+            print(f"   --edit {pre_evo.lower()} --evo-target {pokemon_lower} --evo-level <level>")
 
-            return True
+        # Update moves if provided
+        if args.moves:
+            new_moves = [m.strip() for m in args.moves.split(',')]
+            old_moves = data.get('moves', [])
+            data['moves'] = new_moves
+            changes_made.append(f"Moves: {len(old_moves)} move(s) → {len(new_moves)} move(s)")
 
-        except json.JSONDecodeError as e:
-            self.errors.append(f"{pokemon_name}: Invalid JSON in species file: {e}")
-            return False
-        except Exception as e:
-            self.errors.append(f"{pokemon_name}: Error reading species file: {e}")
-            return False
+        # Update abilities if provided
+        if args.abilities:
+            new_abilities = [a.strip() for a in args.abilities.split(',')]
+            old_abilities = data.get('abilities', [])
+            data['abilities'] = new_abilities
+            changes_made.append(f"Abilities: {old_abilities} → {new_abilities}")
 
-    def check_model_file(self, pokemon_name: str) -> bool:
-        """Check model .geo.json file"""
-        model_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_name / f"{pokemon_name}.geo.json"
+        # Save if changes were made
+        if changes_made:
+            print(f"\nChanges to apply:")
+            for change in changes_made:
+                print(f"   • {change}")
 
-        # CRITICAL: Check for wrong filename format (underscores instead of dots)
-        wrong_filename = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "models" / pokemon_name / f"{pokemon_name}_geo.json"
-        if wrong_filename.exists():
-            self.errors.append(
-                f"{pokemon_name}: ERROR: CRITICAL BUG! Model file uses UNDERSCORES: '{pokemon_name}_geo.json'")
-            self.errors.append(f"  Must use DOTS: '{pokemon_name}.geo.json' (rename the file!)")
-            return False
+            # Calculate new BST
+            new_stats = data.get('baseStats', {})
+            new_total = (new_stats.get('hp', 0) + new_stats.get('attack', 0) +
+                         new_stats.get('defence', 0) + new_stats.get('special_attack', 0) +
+                         new_stats.get('special_defence', 0) + new_stats.get('speed', 0))
 
-        if not model_file.exists():
-            self.errors.append(f"{pokemon_name}: Missing model file: {model_file}")
-            return False
+            if new_total != current_total:
+                print(f"\n   BST Change: {current_total} → {new_total}")
 
-        try:
-            with open(model_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            # Save the file
+            try:
+                with open(species_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+                print(f"\n[OK] Successfully updated {pokemon_name.capitalize()}!")
+                print(f"   File: {species_file}")
+            except Exception as e:
+                print(f"\nERROR: saving changes: {e}")
+        else:
+            print(f"\nWARNING: No changes specified!")
+            print(f"   Use --hp, --attack, --number, --evo-target, --moves, etc. to make changes")
+            print(f"\nTIP: Examples:")
+            print(f"   python script.py --edit {pokemon_name} --hp 80 --attack 70 --rarity rare")
+            print(f"   python script.py --edit {pokemon_name} --number 1102")
+            print(f"   python script.py --edit {pokemon_name} --evo-target newmon --evo-level 25")
+            print(f"   python script.py --edit {pokemon_name} --remove-evolutions")
 
-            # Check identifier
-            if "minecraft:geometry" in data:
-                geometries = data["minecraft:geometry"]
-                if isinstance(geometries, list) and len(geometries) > 0:
-                    identifier = geometries[0].get("description", {}).get("identifier", "")
-                    expected = f"geometry.{pokemon_name}"
+        print(f"\n{'=' * 70}\n")
 
-                    # Check if identifier is completely wrong (different pokemon)
-                    if identifier and not identifier.endswith(pokemon_name):
-                        self.errors.append(f"{pokemon_name}: ERROR: Model identifier '{identifier}' doesn't match filename!")
-                        self.errors.append(f"  Expected: '{expected}'")
-                    elif identifier != expected:
-                        self.warnings.append(
-                            f"{pokemon_name}: Model identifier is '{identifier}', expected '{expected}'")
+    def edit_files(self, pokemon_name: str) -> bool:
+        """Swap in new asset files (model/animation/textures) for an existing Pokémon.
+        New files are taken from the base pack folder; displaced files are moved OUT
+        to that same folder, so running --editfiles again swaps back (one-level undo)."""
+        pokemon_lower = pokemon_name.lower()
 
-                    # Extract bone names for later validation
-                    bones = geometries[0].get("bones", [])
-                    bone_names = [bone.get("name", "") for bone in bones if isinstance(bone, dict)]
-                    # Store for cross-validation with animations
-                    if not hasattr(self, 'model_bones'):
-                        self.model_bones = {}
-                    self.model_bones[pokemon_name] = bone_names
+        print(f"\n{'=' * 70}")
+        print(f"SWAPPING ASSET FILES FOR: {pokemon_lower.upper()}")
+        print(f"{'=' * 70}\n")
 
-                    # NEW v2.1: Cache declared texture size for texture dimension check
-                    desc = geometries[0].get("description", {})
-                    tex_w = desc.get("texture_width")
-                    tex_h = desc.get("texture_height")
-                    if isinstance(tex_w, (int, float)) and isinstance(tex_h, (int, float)):
-                        self.model_texture_size[pokemon_name] = (int(tex_w), int(tex_h))
-                    else:
-                        self.warnings.append(
-                            f"{pokemon_name}: Model missing texture_width/texture_height in description")
-
-            # Check file size (warn if suspiciously small)
-            file_size = model_file.stat().st_size
-            if file_size < 100:
-                self.warnings.append(f"{pokemon_name}: Model file is very small ({file_size} bytes) - might be empty!")
-
-            return True
-
-        except json.JSONDecodeError as e:
-            self.errors.append(f"{pokemon_name}: Invalid JSON in model file: {e}")
-            return False
-        except Exception as e:
-            self.errors.append(f"{pokemon_name}: Error reading model file: {e}")
-            return False
-
-    def check_animation_file(self, pokemon_name: str) -> bool:
-        """Check animation .animation.json file"""
-        anim_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_name / f"{pokemon_name}.animation.json"
-
-        # CRITICAL: Check for wrong filename format (underscores instead of dots)
-        wrong_filename = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "animations" / pokemon_name / f"{pokemon_name}_animation.json"
-        if wrong_filename.exists():
-            self.errors.append(
-                f"{pokemon_name}: ERROR: CRITICAL BUG! Animation file uses UNDERSCORES: '{pokemon_name}_animation.json'")
-            self.errors.append(f"  Must use DOTS: '{pokemon_name}.animation.json' (rename the file!)")
+        species_file = (self.behavior_pack_dir / "data" / "cobblemon" /
+                        "species" / "custom" / f"{pokemon_lower}.json")
+        if not species_file.exists():
+            print(f"ERROR: Pokémon '{pokemon_lower}' not found!")
             return False
 
-        if not anim_file.exists():
-            self.errors.append(f"{pokemon_name}: Missing animation file: {anim_file}")
-            return False
+        files = self.find_files_in_base_dir()
+        bedrock = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon"
+        tex_dir = (self.resource_pack_dir / "assets" / "cobblemon" /
+                   "textures" / "pokemon" / pokemon_lower)
 
-        try:
-            with open(anim_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Check for animations
-            if "animations" not in data:
-                self.errors.append(f"{pokemon_name}: No 'animations' key in animation file")
+        def swap(source: Path, installed: Path, label: str) -> bool:
+            """Collision-safe swap: source -> installed; old installed -> base dir."""
+            try:
+                temp = self.base_dir / f".swap_tmp_{installed.name}"
+                shutil.move(str(source), str(temp))
+                if installed.exists():
+                    out_path = self.base_dir / installed.name
+                    if out_path.exists():
+                        print(f"WARNING: Overwriting previous backup: {out_path.name}")
+                        out_path.unlink()
+                    shutil.move(str(installed), str(out_path))
+                    print(f"  Old {label} → {out_path.name} (in pack folder, run --editfiles again to restore)")
+                else:
+                    installed.parent.mkdir(parents=True, exist_ok=True)
+                    print(f"  NOTE: No previous {label} — nothing to back up")
+                shutil.move(str(temp), str(installed))
+                print(f"  New {label}: {source.name} → installed")
+                return True
+            except Exception as e:
+                print(f"  ERROR: Failed to swap {label}: {e}")
                 return False
 
-            animations = data["animations"]
+        swapped = []
 
-            # NEW v2.1: Cache animation names for poser cross-check
-            # Keys look like "animation.molecul.ground_idle" -> cache "ground_idle"
-            anim_suffixes = set()
-            expected_prefix = f"animation.{pokemon_name}."
-            for anim_key in animations.keys():
-                if anim_key.startswith(expected_prefix):
-                    anim_suffixes.add(anim_key[len(expected_prefix):])
+        # Model
+        if files['models']:
+            if len(files['models']) > 1:
+                print(f"WARNING: Multiple model files found, using: {files['models'][0].name}")
+            installed = bedrock / "models" / pokemon_lower / f"{pokemon_lower}.geo.json"
+            if swap(files['models'][0], installed, "model"):
+                swapped.append("model")
+                # Sanity-check the new model's identifier
+                try:
+                    with open(installed, 'r') as f:
+                        geo = json.load(f)
+                    ident = geo.get("minecraft:geometry", [{}])[0].get(
+                        "description", {}).get("identifier", "")
+                    if ident != f"geometry.{pokemon_lower}":
+                        print(f"  WARNING: New model identifier is '{ident}' — expected "
+                              f"'geometry.{pokemon_lower}'. Fix in Blockbench or it won't render!")
+                except Exception:
+                    print(f"  WARNING: Could not validate new model JSON — run the pack checker!")
+
+        # Animation
+        if files['animations']:
+            if len(files['animations']) > 1:
+                print(f"WARNING: Multiple animation files found, using: {files['animations'][0].name}")
+            installed = bedrock / "animations" / pokemon_lower / f"{pokemon_lower}.animation.json"
+            if swap(files['animations'][0], installed, "animation"):
+                swapped.append("animation")
+                try:
+                    with open(installed, 'r') as f:
+                        anims = json.load(f).get("animations", {})
+                    bad = [k for k in anims if not k.startswith(f"animation.{pokemon_lower}.")]
+                    if bad:
+                        print(f"  WARNING: {len(bad)} animation key(s) don't start with "
+                              f"'animation.{pokemon_lower}.' — posers won't find them!")
+                except Exception:
+                    print(f"  WARNING: Could not validate new animation JSON — run the pack checker!")
+
+        # Textures (classify by filename: 'shiny' -> shiny slot)
+        shiny_sources = [t for t in files['textures'] if 'shiny' in t.name.lower()]
+        normal_sources = [t for t in files['textures'] if 'shiny' not in t.name.lower()]
+        if normal_sources:
+            if len(normal_sources) > 1:
+                print(f"WARNING: Multiple base textures found, using: {normal_sources[0].name}")
+            if swap(normal_sources[0], tex_dir / f"{pokemon_lower}.png", "texture"):
+                swapped.append("texture")
+        if shiny_sources:
+            if len(shiny_sources) > 1:
+                print(f"WARNING: Multiple shiny textures found, using: {shiny_sources[0].name}")
+            if swap(shiny_sources[0], tex_dir / f"{pokemon_lower}_shiny.png", "shiny texture"):
+                swapped.append("shiny texture")
+
+        if not swapped:
+            print(f"ERROR: No asset files found in: {self.base_dir}")
+            print(f"   Drop the new files there first. Recognized:")
+            print(f"   • Model:     *.geo.json (or containing 'geo'/'model')")
+            print(f"   • Animation: *.animation.json")
+            print(f"   • Textures:  *.png ('shiny' in name → shiny slot)")
+            return False
+
+        print(f"\n{'=' * 70}")
+        print(f"SWAPPED: {', '.join(swapped)}")
+        print(f"{'=' * 70}")
+        print(f"  Undo: run --editfiles {pokemon_lower} again (old files are in the pack folder)")
+        print(f"Recommended: run pack_checker.py to validate the new files")
+        print(f"Reload in-game: /reload\n")
+        return True
+
+    def rename_pokemon(self, old_name: str, new_name: str) -> bool:
+        """Rename a Pokémon across EVERY site: species, spawn, model, animation,
+        poser, resolver, textures, lang, other species' evolutions/preEvolution,
+        and species_additions."""
+        old = old_name.lower()
+        new = new_name.lower()
+
+        print(f"\n{'=' * 70}")
+        print(f"  RENAMING: {old.upper()} → {new.upper()}")
+        print(f"{'=' * 70}\n")
+
+        import re
+        if not re.fullmatch(r'[a-z0-9_]+', new):
+            print(f"ERROR: Invalid name '{new}': use lowercase letters, numbers, underscores only")
+            return False
+
+        species_dir = self.behavior_pack_dir / "data" / "cobblemon" / "species" / "custom"
+        old_species = species_dir / f"{old}.json"
+        if not old_species.exists():
+            print(f"ERROR: Pokémon '{old}' not found!")
+            return False
+        if (species_dir / f"{new}.json").exists():
+            print(f"ERROR: A Pokémon named '{new}' already exists!")
+            return False
+
+        bedrock = self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" / "pokemon"
+        changes = []
+
+        # 1. Species file: name, pokedex keys, evolution ids, then rename file
+        with open(old_species, 'r') as f:
+            data = json.load(f)
+        data['name'] = new
+        if isinstance(data.get('pokedex'), list):
+            data['pokedex'] = [k.replace(f"cobblemon.species.{old}.", f"cobblemon.species.{new}.")
+                               for k in data['pokedex']]
+        for evo in data.get('evolutions', []) or []:
+            if isinstance(evo, dict) and str(evo.get('id', '')).startswith(f"{old}_"):
+                evo['id'] = new + evo['id'][len(old):]
+        with open(species_dir / f"{new}.json", 'w') as f:
+            json.dump(data, f, indent=2)
+        old_species.unlink()
+        changes.append("species file (name, pokedex keys, evolution ids, filename)")
+
+        # 2. Spawn file: pokemon field, ids, filename
+        spawn_dir = self.behavior_pack_dir / "data" / "cobblemon" / "spawn_pool_world"
+        old_spawn = spawn_dir / f"{old}.json"
+        if old_spawn.exists():
+            with open(old_spawn, 'r') as f:
+                spawn = json.load(f)
+            for entry in spawn.get('spawns', []) or []:
+                if not isinstance(entry, dict):
+                    continue
+                base = str(entry.get('pokemon', '')).split(' ')
+                if base and base[0] == old:
+                    entry['pokemon'] = ' '.join([new] + base[1:]).strip()
+                if str(entry.get('id', '')).startswith(f"{old}-"):
+                    entry['id'] = new + entry['id'][len(old):]
+            with open(spawn_dir / f"{new}.json", 'w') as f:
+                json.dump(spawn, f, indent=2)
+            old_spawn.unlink()
+            changes.append("spawn file (pokemon, ids, filename)")
+
+        # 3. Model: identifier, file, folder
+        old_model_dir = bedrock / "models" / old
+        if old_model_dir.exists():
+            model_file = old_model_dir / f"{old}.geo.json"
+            if model_file.exists():
+                with open(model_file, 'r') as f:
+                    geo = json.load(f)
+                for g in geo.get("minecraft:geometry", []):
+                    desc = g.get("description", {})
+                    if desc.get("identifier") == f"geometry.{old}":
+                        desc["identifier"] = f"geometry.{new}"
+                with open(model_file, 'w') as f:
+                    json.dump(geo, f, indent=2)
+                model_file.rename(old_model_dir / f"{new}.geo.json")
+            old_model_dir.rename(bedrock / "models" / new)
+            changes.append("model (geometry identifier, file, folder)")
+
+        # 4. Animation: keys, file, folder
+        old_anim_dir = bedrock / "animations" / old
+        if old_anim_dir.exists():
+            anim_file = old_anim_dir / f"{old}.animation.json"
+            if anim_file.exists():
+                with open(anim_file, 'r') as f:
+                    anim = json.load(f)
+                anim['animations'] = {
+                    (f"animation.{new}." + k[len(f"animation.{old}."):]
+                     if k.startswith(f"animation.{old}.") else k): v
+                    for k, v in anim.get('animations', {}).items()}
+                with open(anim_file, 'w') as f:
+                    json.dump(anim, f, indent=2)
+                anim_file.rename(old_anim_dir / f"{new}.animation.json")
+            old_anim_dir.rename(bedrock / "animations" / new)
+            changes.append("animation (keys, file, folder)")
+
+        # 5. Poser: bedrock() refs, filename
+        old_poser = bedrock / "posers" / f"{old}.json"
+        if old_poser.exists():
+            text = old_poser.read_text(encoding='utf-8')
+            text = text.replace(f"bedrock({old},", f"bedrock({new},")
+            (bedrock / "posers" / f"{new}.json").write_text(text, encoding='utf-8')
+            old_poser.unlink()
+            changes.append("poser (bedrock() refs, filename)")
+
+        # 6. Resolver: species/model/poser/texture refs, filename
+        resolvers_dir = bedrock / "resolvers"
+        if resolvers_dir.exists():
+            for res_file in list(resolvers_dir.glob(f"*_{old}_base.json")):
+                with open(res_file, 'r') as f:
+                    res = json.load(f)
+                if res.get('species') == f"cobblemon:{old}":
+                    res['species'] = f"cobblemon:{new}"
+                for var in res.get('variations', []) or []:
+                    if not isinstance(var, dict):
+                        continue
+                    if var.get('model') == f"cobblemon:{old}.geo":
+                        var['model'] = f"cobblemon:{new}.geo"
+                    if var.get('poser') == f"cobblemon:{old}":
+                        var['poser'] = f"cobblemon:{new}"
+                    if 'texture' in var:
+                        var['texture'] = (str(var['texture'])
+                                          .replace(f"pokemon/{old}/", f"pokemon/{new}/")
+                                          .replace(f"/{old}_shiny.png", f"/{new}_shiny.png")
+                                          .replace(f"/{old}.png", f"/{new}.png"))
+                new_res_name = res_file.name.replace(f"_{old}_base.json", f"_{new}_base.json")
+                with open(resolvers_dir / new_res_name, 'w') as f:
+                    json.dump(res, f, indent=2)
+                res_file.unlink()
+            changes.append("resolver (species/model/poser/texture refs, filename)")
+
+        # 7. Textures: files, folder
+        old_tex_dir = (self.resource_pack_dir / "assets" / "cobblemon" /
+                       "textures" / "pokemon" / old)
+        if old_tex_dir.exists():
+            for tex in list(old_tex_dir.iterdir()):
+                if tex.name.startswith(old):
+                    tex.rename(old_tex_dir / (new + tex.name[len(old):]))
+            old_tex_dir.rename(old_tex_dir.parent / new)
+            changes.append("textures (files, folder)")
+
+        # 8. Lang: all cobblemon.species.{old}.* keys
+        lang_file = (self.resource_pack_dir / "assets" / "cobblemon" /
+                     "lang" / "en_us.json")
+        if lang_file.exists():
+            with open(lang_file, 'r', encoding='utf-8') as f:
+                lang = json.load(f)
+            prefix = f"cobblemon.species.{old}."
+            renamed = {}
+            for k, v in lang.items():
+                renamed[f"cobblemon.species.{new}." + k[len(prefix):] if k.startswith(prefix) else k] = v
+            # Update the display name VALUE too (if it was the auto-generated default)
+            name_key = f"cobblemon.species.{new}.name"
+            if name_key in renamed:
+                if str(renamed[name_key]).lower() == old:
+                    renamed[name_key] = new.title()
                 else:
-                    self.warnings.append(
-                        f"{pokemon_name}: Animation key '{anim_key}' doesn't follow "
-                        f"'animation.{pokemon_name}.<name>' convention (poser may not find it)")
-            self.animation_names[pokemon_name] = anim_suffixes
+                    print(f"WARNING: Display name '{renamed[name_key]}' looks custom — kept as-is.")
+                    print(f"   Update it manually in en_us.json if it should change.")
+            # Warn if desc prose still mentions the old name (can't safely auto-rewrite)
+            stale = [k for k, v in renamed.items()
+                     if k.startswith(f"cobblemon.species.{new}.desc") and old in str(v).lower()]
+            if stale:
+                print(f"WARNING: Pokédex text still mentions '{old}' in: {', '.join(stale)}")
+                print(f"   Update with: --edit {new} --desc1 \"...\" --desc2 \"...\"")
+            if renamed != lang:
+                with open(lang_file, 'w', encoding='utf-8') as f:
+                    json.dump(renamed, f, indent=2, ensure_ascii=False)
+                changes.append("lang file (name/desc keys)")
 
-            # Check required animations
-            for required_anim in self.REQUIRED_ANIMATIONS:
-                anim_key = f"animation.{pokemon_name}.{required_anim}"
-                if anim_key not in animations:
-                    self.errors.append(f"{pokemon_name}: Missing required animation '{required_anim}'")
-
-            # BONE MATCHING: Check if animation bones exist in model
-            if hasattr(self, 'model_bones') and pokemon_name in self.model_bones:
-                model_bone_names = self.model_bones[pokemon_name]
-
-                for anim_name, anim_data in animations.items():
-                    if isinstance(anim_data, dict) and "bones" in anim_data:
-                        anim_bones = anim_data["bones"]
-                        if isinstance(anim_bones, dict):
-                            for bone_name in anim_bones.keys():
-                                if bone_name not in model_bone_names:
-                                    self.warnings.append(
-                                        f"{pokemon_name}: Animation '{anim_name}' references bone '{bone_name}' that doesn't exist in model")
-                                    self.warnings.append(f"  Model bones: {', '.join(model_bone_names)}")
-
-            return True
-
-        except json.JSONDecodeError as e:
-            self.errors.append(f"{pokemon_name}: Invalid JSON in animation file: {e}")
-            return False
-        except Exception as e:
-            self.errors.append(f"{pokemon_name}: Error reading animation file: {e}")
-            return False
-
-    def _read_png_size(self, png_path: Path):
-        """Read width/height from a PNG's IHDR chunk. Returns (w, h) or None."""
-        try:
-            with open(png_path, 'rb') as f:
-                header = f.read(24)
-            if len(header) < 24 or header[:8] != b'\x89PNG\r\n\x1a\n':
-                return None
-            import struct
-            width, height = struct.unpack(">II", header[16:24])
-            return (width, height)
-        except Exception:
-            return None
-
-    def _check_texture_dimensions(self, pokemon_name: str, texture_path: Path, label: str):
-        """NEW v2.1: Compare actual PNG dimensions against the model's declared UV size"""
-        if pokemon_name not in self.model_texture_size:
-            return
-        declared_w, declared_h = self.model_texture_size[pokemon_name]
-        if declared_w <= 0 or declared_h <= 0:
-            return
-        size = self._read_png_size(texture_path)
-        if size is None:
-            return
-        actual_w, actual_h = size
-        if (actual_w, actual_h) == (declared_w, declared_h):
-            return
-        # Proportional scaling (e.g. 128x128 for a 64x64 UV map) renders fine
-        if actual_w * declared_h == actual_h * declared_w:
-            self.info.append(
-                f"[OK] {pokemon_name}: {label} is {actual_w}x{actual_h} "
-                f"(proportionally scaled from declared {declared_w}x{declared_h} — OK)")
-        else:
-            self.errors.append(
-                f"{pokemon_name}: ERROR: {label} is {actual_w}x{actual_h} but model declares "
-                f"{declared_w}x{declared_h}!")
-            self.errors.append(
-                f"  Mismatched aspect ratio will garble the texture in-game. "
-                f"Re-export at {declared_w}x{declared_h} (or a clean multiple).")
-
-    def check_texture_files(self, pokemon_name: str) -> bool:
-        """Check texture PNG files"""
-        texture_dir = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "textures" / "pokemon" / pokemon_name
-
-        # Check regular texture
-        regular_texture = texture_dir / f"{pokemon_name}.png"
-        if not regular_texture.exists():
-            self.errors.append(f"{pokemon_name}: Missing regular texture: {regular_texture}")
-            return False
-
-        # Validate PNG format
-        try:
-            file_size = regular_texture.stat().st_size
-            if file_size < 100:
-                self.errors.append(
-                    f"{pokemon_name}: Texture file suspiciously small ({file_size} bytes) - may be corrupted")
-
-            # Check if it's actually a PNG by reading header
-            with open(regular_texture, 'rb') as f:
-                header = f.read(8)
-                if header != b'\x89PNG\r\n\x1a\n':
-                    self.errors.append(f"{pokemon_name}: CRITICAL! '{pokemon_name}.png' is not a valid PNG file!")
-                    self.errors.append(f"  File may be corrupted or wrong format")
-        except Exception as e:
-            self.warnings.append(f"{pokemon_name}: Could not validate texture format: {e}")
-
-        # NEW v2.1: Compare texture dimensions against model's declared UV size
-        self._check_texture_dimensions(pokemon_name, regular_texture, f"{pokemon_name}.png")
-
-        # Check shiny texture
-        shiny_texture = texture_dir / f"{pokemon_name}_shiny.png"
-        if not shiny_texture.exists():
-            self.warnings.append(f"{pokemon_name}: Missing shiny texture: {shiny_texture}")
-        else:
-            # NEW v2.1: Validate shiny PNG format and dimensions too
+        # 9. Other species: evolutions results/ids and preEvolution references
+        touched_others = []
+        for other_file in species_dir.glob("*.json"):
             try:
-                with open(shiny_texture, 'rb') as f:
-                    if f.read(8) != b'\x89PNG\r\n\x1a\n':
-                        self.errors.append(
-                            f"{pokemon_name}: ERROR: '{pokemon_name}_shiny.png' is not a valid PNG file!")
+                with open(other_file, 'r') as f:
+                    other = json.load(f)
             except Exception:
-                pass
-            self._check_texture_dimensions(pokemon_name, shiny_texture, f"{pokemon_name}_shiny.png")
+                continue
+            dirty = False
+            for evo in other.get('evolutions', []) or []:
+                if not isinstance(evo, dict):
+                    continue
+                parts = str(evo.get('result', '')).split(' ')
+                if parts and parts[0].split(':')[-1] == old:
+                    ns = parts[0][:-len(old)]
+                    evo['result'] = ' '.join([ns + new] + parts[1:]).strip()
+                    dirty = True
+                if str(evo.get('id', '')).endswith(f"_{old}"):
+                    evo['id'] = evo['id'][:-len(old)] + new
+                    dirty = True
+            if other.get('preEvolution') == old:
+                other['preEvolution'] = new
+                dirty = True
+            if dirty:
+                with open(other_file, 'w') as f:
+                    json.dump(other, f, indent=2)
+                touched_others.append(other_file.stem)
+        if touched_others:
+            changes.append(f"other species referencing it: {', '.join(touched_others)}")
+
+        # 10. Species additions: targets, evolution results, filenames
+        additions_dir = (self.behavior_pack_dir / "data" / "cobblemon" /
+                         "species_additions")
+        if additions_dir.exists():
+            touched_adds = []
+            for add_file in list(additions_dir.glob("*.json")):
+                try:
+                    with open(add_file, 'r') as f:
+                        add = json.load(f)
+                except Exception:
+                    continue
+                dirty = False
+                if add.get('target') == f"cobblemon:{old}":
+                    add['target'] = f"cobblemon:{new}"
+                    dirty = True
+                for evo in add.get('evolutions', []) or []:
+                    if isinstance(evo, dict):
+                        parts = str(evo.get('result', '')).split(' ')
+                        if parts and parts[0].split(':')[-1] == old:
+                            ns = parts[0][:-len(old)]
+                            evo['result'] = ' '.join([ns + new] + parts[1:]).strip()
+                            dirty = True
+                        if str(evo.get('id', '')).endswith(f"_{old}"):
+                            evo['id'] = evo['id'][:-len(old)] + new
+                            dirty = True
+                if dirty:
+                    new_add_name = add_file.name.replace(f"_{old}_", f"_{new}_")
+                    with open(additions_dir / new_add_name, 'w') as f:
+                        json.dump(add, f, indent=2)
+                    if new_add_name != add_file.name:
+                        add_file.unlink()
+                    touched_adds.append(new_add_name)
+            if touched_adds:
+                changes.append(f"species_additions: {', '.join(touched_adds)}")
+
+        print(f"RENAME COMPLETE — sites updated:")
+        for c in changes:
+            print(f"   • {c}")
+        print(f"\nSTRONGLY recommended: run pack_checker.py now to verify all references")
+        print(f"Reload in-game: /reload")
+        print(f"{'=' * 70}\n")
+        return True
+
+    def generate_pokemon(self, pokemon_name: str, config: Dict, cleanup: bool = True):
+        """Main function to generate Pokémon packs"""
+        print(f"\n{'=' * 70}")
+        print(f"Cobblemon Pack Generator - Creating {pokemon_name.upper()}")
+        print(f"{'=' * 70}")
+
+        # Important warning
+        print(f"\nWARNING: IMPORTANT: Keep this Python script OUTSIDE of:")
+        print(f"   {self.base_dir}")
+        print(f"   (Only put your .geo.json, .animation.json, .png files there!)")
+
+        # Find files
+        print(f"\nScanning {self.base_dir} for files...")
+        files = self.find_files_in_base_dir()
+
+        print(f"\nFound:")
+        print(f"  • {len(files['animations'])} animation file(s)")
+        print(f"  • {len(files['models'])} model file(s)")
+        print(f"  • {len(files['textures'])} texture file(s)")
+
+        if not any(files[key] for key in ['animations', 'models', 'textures']):
+            print("\nWARNING: No valid files found! Please add files to:")
+            print(f"    {self.base_dir}")
+            return False
+
+        # Setup directories
+        self.setup_directories(pokemon_name)
+
+        # Organize files
+        self.organize_files(pokemon_name, files)
+
+        # Generate configuration files
+        self.generate_pack_files(pokemon_name, config)
+
+        # Info message about head bone
+        if config.get('head_bone', 'head').lower() == 'none':
+            print(f"\nNOTE: Note: No head bone specified")
+            print(f"   - Poser will not include 'head' field")
+            print(f"   - Species 'canLook' automatically set to false")
+
+        # Cleanup if requested
+        if cleanup:
+            self.cleanup_source_files(files)
+
+        print(f"\n{'=' * 70}")
+        print("PACK GENERATION COMPLETE! ")
+        print(f"{'=' * 70}")
+        print(f"\nYour packs are at:")
+        print(f"   Resource Pack: {self.resource_pack_dir}")
+        print(f"   Behavior Pack: {self.behavior_pack_dir}")
+        print(f"\nPack Formats:")
+        print(f"   Resource: {self.RESOURCE_PACK_FORMAT} | Behavior: {self.DATA_PACK_FORMAT}")
+        print(f"   WARNING: Can only combine into one folder if formats match!")
+        print(f"\nAdding More Pokémon:")
+        print(f"   Just run the script again with new files and a new name!")
+        print(f"   It will ADD to the existing packs (won't overwrite)")
+        print(f"\nTIP: Installation:")
+        print(f"   1. Copy resource_pack/ to .minecraft/resourcepacks/")
+        print(f"   2. Copy behavior_pack/ to .minecraft/saves/YourWorld/datapacks/")
+        print(f"   3. In-game: Enable resource pack, /reload")
+        print(f"   4. Test: /pokespawn {pokemon_name.lower()}")
+        print(f"\nTexture Issue?")
+        print(f"   If showing practice dummy, check:")
+        print(f"   - Texture is .png format")
+        print(f"   - Model identifier matches Pokémon name")
+        print(f"   - Both packs are installed AND enabled")
+        print(f"   - Run /reload after installing")
+        print(f"\n{'=' * 70}\n")
 
         return True
 
-    def check_poser_file(self, pokemon_name: str) -> bool:
-        """Check poser JSON file"""
-        poser_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "posers" / f"{pokemon_name}.json"
-
-        if not poser_file.exists():
-            self.errors.append(f"{pokemon_name}: Missing poser file: {poser_file}")
-            return False
-
-        try:
-            with open(poser_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Check for poses
-            if "poses" not in data:
-                self.errors.append(f"{pokemon_name}: No 'poses' key in poser file")
-                return False
-
-            # CRITICAL HEAD FIELD BUG CHECK
-            if "head" in data:
-                head_bone = data["head"]
-                if head_bone is None or head_bone == "null" or head_bone == "":
-                    self.errors.append(f"{pokemon_name}: ERROR: CRITICAL BUG! 'head' field is null/empty")
-                    self.errors.append(f"  If no head bone, DELETE the 'head' field entirely (don't set to null!)")
-                    self.errors.append(f"  This causes the 'practice dummy' bug!")
-                else:
-                    # Check if head bone actually exists in model
-                    if hasattr(self, 'model_bones') and pokemon_name in self.model_bones:
-                        model_bone_list = self.model_bones[pokemon_name]
-                        if head_bone not in model_bone_list:
-                            self.errors.append(f"{pokemon_name}: ERROR: Head bone '{head_bone}' doesn't exist in model!")
-                            self.errors.append(f"  Model bones are: {', '.join(model_bone_list)}")
-
-            # Check for portrait scale (common issue)
-            if "portraitScale" not in data:
-                self.warnings.append(f"{pokemon_name}: Missing 'portraitScale' in poser (defaults to 1.0)")
-
-            # Check for profile translation
-            if "profileTranslation" not in data:
-                self.warnings.append(f"{pokemon_name}: Missing 'profileTranslation' in poser")
-
-            # Check each pose for animation references
-            poses = data.get("poses", {})
-            import re as _re
-            bedrock_pattern = _re.compile(r'bedrock\(\s*([a-z0-9_]+)\s*,\s*([a-z0-9_]+)\s*\)')
-            for pose_name, pose_data in poses.items():
-                if isinstance(pose_data, dict):
-                    # Check for animations array
-                    if "animations" in pose_data:
-                        anims = pose_data["animations"]
-                        if isinstance(anims, list):
-                            for anim in anims:
-                                # Warn about "look" animation when head might be missing
-                                if "look" in str(anim).lower() and "head" not in data:
-                                    self.warnings.append(
-                                        f"{pokemon_name}: Pose '{pose_name}' has 'look' animation but no head bone defined")
-
-                                # NEW v2.1: Validate bedrock(name, anim) references
-                                for ref_name, ref_anim in bedrock_pattern.findall(str(anim)):
-                                    if ref_name != pokemon_name:
-                                        self.errors.append(
-                                            f"{pokemon_name}: ERROR: Pose '{pose_name}' references "
-                                            f"bedrock({ref_name}, ...) — wrong Pokémon name!")
-                                        self.errors.append(
-                                            f"  Should be bedrock({pokemon_name}, ...) — "
-                                            f"likely a copy-paste from another poser")
-                                    elif pokemon_name in self.animation_names:
-                                        if ref_anim not in self.animation_names[pokemon_name]:
-                                            available = ', '.join(sorted(self.animation_names[pokemon_name]))
-                                            self.errors.append(
-                                                f"{pokemon_name}: ERROR: Pose '{pose_name}' references animation "
-                                                f"'{ref_anim}' that doesn't exist in animation file!")
-                                            self.errors.append(f"  Available animations: {available}")
-
-            return True
-
-        except json.JSONDecodeError as e:
-            self.errors.append(f"{pokemon_name}: Invalid JSON in poser file: {e}")
-            return False
-        except Exception as e:
-            self.errors.append(f"{pokemon_name}: Error reading poser file: {e}")
-            return False
-
-    def check_resolver_file(self, pokemon_name: str) -> bool:
-        """Check resolver JSON file"""
-        # Correct location per wiki (no subfolder)
-        resolver_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers" / f"0_{pokemon_name}_base.json"
-
-        # Check if file exists
-        if not resolver_file.exists():
-            # Try with subfolder (backwards compatibility)
-            resolver_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon" / "resolvers" / pokemon_name / f"0_{pokemon_name}_base.json"
-
-            if not resolver_file.exists():
-                self.errors.append(f"{pokemon_name}: Missing resolver file (not found in either location)")
-                return False
-
-        # File exists, now validate it
-        try:
-            with open(resolver_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Check variations array
-            if "variations" not in data:
-                self.errors.append(f"{pokemon_name}: No 'variations' array in resolver")
-                return False
-
-            variations = data["variations"]
-            if not isinstance(variations, list) or len(variations) == 0:
-                self.errors.append(f"{pokemon_name}: Empty or invalid 'variations' in resolver")
-                return False
-
-            # Check first variation for model
-            first_var = variations[0]
-            if "model" in first_var:
-                expected_model = f"cobblemon:{pokemon_name}.geo"
-                if first_var["model"] != expected_model:
-                    self.warnings.append(
-                        f"{pokemon_name}: Model reference is '{first_var['model']}', expected '{expected_model}'")
-            else:
-                self.errors.append(f"{pokemon_name}: No 'model' field in first variation")
-
-            # Check for poser reference
-            if "poser" not in first_var:
-                self.warnings.append(f"{pokemon_name}: No 'poser' field in first variation")
-            else:
-                # NEW v2.1: Verify the poser reference points at an existing poser file
-                poser_ref = first_var["poser"]
-                expected_poser = f"cobblemon:{pokemon_name}"
-                if poser_ref != expected_poser:
-                    self.warnings.append(
-                        f"{pokemon_name}: Poser reference is '{poser_ref}', expected '{expected_poser}'")
-                ref_name = str(poser_ref).split(":", 1)[-1]
-                poser_path = (self.pack_path / "resource_pack" / "assets" / "cobblemon" /
-                              "bedrock" / "pokemon" / "posers" / f"{ref_name}.json")
-                if not poser_path.exists():
-                    self.errors.append(
-                        f"{pokemon_name}: ERROR: Resolver poser '{poser_ref}' has no matching file "
-                        f"at posers/{ref_name}.json")
-
-            # NEW v2.1: Verify texture paths in ALL variations resolve to real files
-            found_texture = False
-            for i, var in enumerate(variations):
-                if not isinstance(var, dict) or "texture" not in var:
-                    continue
-                found_texture = True
-                tex_ref = str(var["texture"])
-                aspects = var.get("aspects", [])
-                var_label = f"variation #{i + 1}" + (f" (aspects: {', '.join(aspects)})" if aspects else "")
-
-                if not tex_ref.startswith("cobblemon:"):
-                    self.warnings.append(
-                        f"{pokemon_name}: Texture in {var_label} is '{tex_ref}' "
-                        f"(expected a 'cobblemon:' namespaced path)")
-                    continue
-                rel_path = tex_ref.split(":", 1)[1]
-                tex_path = self.pack_path / "resource_pack" / "assets" / "cobblemon" / rel_path
-                if not tex_path.exists():
-                    self.errors.append(
-                        f"{pokemon_name}: ERROR: Resolver {var_label} points at missing texture!")
-                    self.errors.append(f"  '{tex_ref}' → {tex_path}")
-                    self.errors.append(f"  This causes invisible/missing textures in-game (check spelling & case)")
-            if not found_texture:
-                self.warnings.append(
-                    f"{pokemon_name}: No 'texture' field in any resolver variation "
-                    f"(Pokémon may render untextured)")
-
-            return True
-
-        except json.JSONDecodeError as e:
-            self.errors.append(f"{pokemon_name}: Invalid JSON in resolver file: {e}")
-            return False
-        except Exception as e:
-            self.errors.append(f"{pokemon_name}: Error reading resolver file: {e}")
-            return False
-
-    def check_spawn_file(self, pokemon_name: str) -> bool:
-        """Check spawn pool JSON file"""
-        spawn_file = self.pack_path / "behavior_pack" / "data" / "cobblemon" / "spawn_pool_world" / f"{pokemon_name}.json"
-
-        if not spawn_file.exists():
-            self.warnings.append(f"{pokemon_name}: Missing spawn file (Pokemon won't spawn naturally)")
-            return True  # Not a critical error
-
-        try:
-            with open(spawn_file, 'r') as f:
-                data = json.load(f)
-
-            # Check for spawns
-            if "spawns" not in data:
-                self.errors.append(f"{pokemon_name}: No 'spawns' array in spawn file")
-                return False
-
-            # NEW v2.1: Deep-check each spawn entry
-            spawns = data["spawns"]
-            if isinstance(spawns, list):
-                if not spawns:
-                    self.warnings.append(f"{pokemon_name}: 'spawns' array is empty (won't spawn)")
-                for i, spawn in enumerate(spawns):
-                    if not isinstance(spawn, dict):
-                        continue
-                    label = f"spawn entry #{i + 1}"
-
-                    # pokemon field should match the species
-                    spawn_pokemon = spawn.get("pokemon", "")
-                    base_pokemon = str(spawn_pokemon).split(" ")[0].lower()  # ignore aspect args
-                    if spawn_pokemon and base_pokemon != pokemon_name:
-                        self.errors.append(
-                            f"{pokemon_name}: ERROR: {label} spawns '{spawn_pokemon}' — doesn't match filename!")
-                        self.errors.append(f"  Likely a copy-paste from another spawn file")
-
-                    # bucket must be valid
-                    bucket = spawn.get("bucket")
-                    if bucket is not None and bucket not in self.VALID_BUCKETS:
-                        self.errors.append(
-                            f"{pokemon_name}: {label} has invalid bucket '{bucket}'")
-                        self.errors.append(f"  Valid buckets: {', '.join(sorted(self.VALID_BUCKETS))}")
-
-                    # weight of 0 never spawns
-                    weight = spawn.get("weight")
-                    if isinstance(weight, (int, float)) and weight <= 0:
-                        self.warnings.append(
-                            f"{pokemon_name}: {label} has weight {weight} (will NEVER spawn!)")
-
-                    # level range sanity
-                    level = spawn.get("level")
-                    if isinstance(level, str) and "-" in level:
-                        try:
-                            lo, hi = level.split("-", 1)
-                            lo, hi = int(lo), int(hi)
-                            if lo > hi:
-                                self.errors.append(
-                                    f"{pokemon_name}: {label} level range '{level}' is backwards (min > max)")
-                            if hi > 100:
-                                self.warnings.append(
-                                    f"{pokemon_name}: {label} max level {hi} is over 100")
-                        except ValueError:
-                            self.warnings.append(
-                                f"{pokemon_name}: {label} level '{level}' isn't a valid range (e.g. '5-30')")
-
-            return True
-
-        except json.JSONDecodeError as e:
-            self.errors.append(f"{pokemon_name}: Invalid JSON in spawn file: {e}")
-            return False
-        except Exception as e:
-            self.errors.append(f"{pokemon_name}: Error reading spawn file: {e}")
-            return False
-
-    # ========================================================================
-    # NEW v2.1: Pack-level cross-checks
-    # ========================================================================
-
-    def check_evolution_targets(self):
-        """NEW v2.1: Verify every evolution result points at a species that exists"""
-        for pokemon_name, evolutions in self.species_evolutions.items():
-            for evo in evolutions:
-                if not isinstance(evo, dict):
-                    continue
-                result = str(evo.get("result", "")).split(" ")[0].lower()  # ignore aspect args
-                result = result.split(":", 1)[-1]  # strip namespace if present
-                if not result:
-                    continue
-                if result not in self.all_species:
-                    self.warnings.append(
-                        f"{pokemon_name}: Evolution target '{result}' is not in this pack")
-                    self.warnings.append(
-                        f"  If it's not a vanilla Pokémon either, the evolution will silently never fire")
-
-    def check_lang_file(self, pokemon_list: List[str]):
-        """NEW v2.1: Verify lang file has name + pokedex desc entries for every Pokémon"""
-        lang_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "lang" / "en_us.json"
-
-        if not lang_file.exists():
-            self.errors.append("Missing lang file: assets/cobblemon/lang/en_us.json")
-            self.errors.append("  All Pokémon will show raw translation keys in-game!")
-            return
-
-        try:
-            with open(lang_file, 'r', encoding='utf-8') as f:
-                lang_data = json.load(f)
-        except json.JSONDecodeError as e:
-            self.errors.append(f"Invalid JSON in lang file en_us.json: {e}")
-            return
-        except Exception as e:
-            self.warnings.append(f"Could not read lang file: {e}")
-            return
-
-        for pokemon_name in pokemon_list:
-            name_key = f"cobblemon.species.{pokemon_name}.name"
-            if name_key not in lang_data:
-                self.warnings.append(
-                    f"{pokemon_name}: Missing '{name_key}' in en_us.json (shows raw key in-game)")
-
-            # Check the desc keys the species file actually declares
-            for dex_key in self.species_pokedex_keys.get(pokemon_name, []):
-                if dex_key not in lang_data:
-                    self.warnings.append(
-                        f"{pokemon_name}: Pokédex key '{dex_key}' declared in species file "
-                        f"but missing from en_us.json")
-
-    def check_species_additions(self):
-        """NEW v2.1: Validate species_additions files (from the species editor)"""
-        additions_dir = self.pack_path / "behavior_pack" / "data" / "cobblemon" / "species_additions"
-        if not additions_dir.exists():
-            return  # Nothing to check
-
-        addition_files = list(additions_dir.glob("*.json"))
-        if not addition_files:
-            return
-
-        print(f"   Checking {len(addition_files)} species addition(s)...")
-
-        for add_file in addition_files:
-            label = f"species_additions/{add_file.name}"
-            try:
-                with open(add_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-            except json.JSONDecodeError as e:
-                self.errors.append(f"{label}: Invalid JSON: {e}")
-                continue
-            except Exception as e:
-                self.errors.append(f"{label}: Error reading file: {e}")
-                continue
-
-            # Target is required and must be namespaced
-            target = data.get("target")
-            if not target:
-                self.errors.append(f"{label}: Missing 'target' field (addition does nothing)")
-                continue
-            if ":" not in str(target):
-                self.warnings.append(
-                    f"{label}: target '{target}' has no namespace (expected e.g. 'cobblemon:{target}')")
-            target_name = str(target).split(":", 1)[-1].lower()
-
-            # If targeting a custom species, it must exist; vanilla we can't verify
-            if target_name in self.all_species:
-                self.info.append(f"[OK] {label}: targets custom species '{target_name}'")
-            else:
-                self.info.append(
-                    f"[OK] {label}: targets '{target_name}' (not in this pack — assuming vanilla; "
-                    f"double-check spelling)")
-
-            # Validate evolutions inside the addition
-            for i, evo in enumerate(data.get("evolutions", [])):
-                if not isinstance(evo, dict):
-                    continue
-                if "result" not in evo:
-                    self.errors.append(f"{label}: Evolution #{i + 1} missing 'result'")
-                else:
-                    result = str(evo["result"]).split(" ")[0].split(":", 1)[-1].lower()
-                    if result and result not in self.all_species:
-                        self.warnings.append(
-                            f"{label}: Evolution target '{result}' is not in this pack "
-                            f"(verify it's vanilla or exists elsewhere)")
-                if "variant" not in evo:
-                    self.errors.append(f"{label}: Evolution #{i + 1} missing 'variant'")
-
-            # Reuse the known move-replacement footgun warning
-            if "moves" in data:
-                self.warnings.append(
-                    f"{label}: 'moves' REPLACES the target's entire move list "
-                    f"({len(data['moves'])} moves) — make sure that's intended")
-
-    def check_orphan_files(self):
-        """NEW v2.1: Find posers/resolvers/models/animations/textures/spawns with no species"""
-        rp_bedrock = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon"
-
-        locations = [
-            ("poser", rp_bedrock / "posers", lambda p: p.stem, "*.json"),
-            ("model folder", rp_bedrock / "models", lambda p: p.name, None),
-            ("animation folder", rp_bedrock / "animations", lambda p: p.name, None),
-            ("texture folder",
-             self.pack_path / "resource_pack" / "assets" / "cobblemon" / "textures" / "pokemon",
-             lambda p: p.name, None),
-            ("spawn file",
-             self.pack_path / "behavior_pack" / "data" / "cobblemon" / "spawn_pool_world",
-             lambda p: p.stem, "*.json"),
-        ]
-
-        for kind, directory, name_fn, pattern in locations:
-            if not directory.exists():
-                continue
-            items = directory.glob(pattern) if pattern else (p for p in directory.iterdir() if p.is_dir())
-            for item in items:
-                name = name_fn(item)
-                if name not in self.all_species:
-                    self.warnings.append(
-                        f"Orphan {kind} '{name}' has no species file (leftover from a "
-                        f"renamed/deleted Pokémon?)")
-
-        # Resolvers use the 0_{name}_base.json pattern
-        resolvers_dir = rp_bedrock / "resolvers"
-        if resolvers_dir.exists():
-            import re as _re
-            resolver_pattern = _re.compile(r'^\d+_(.+)_base$')
-            for item in resolvers_dir.glob("*.json"):
-                m = resolver_pattern.match(item.stem)
-                if m and m.group(1) not in self.all_species:
-                    self.warnings.append(
-                        f"Orphan resolver '{item.name}' has no species file (leftover from a "
-                        f"renamed/deleted Pokémon?)")
-
-    def print_results(self):
-        """Print all errors, warnings, and info"""
-        print(f"\n{'=' * 70}")
-        print("RESULTS")
-        print(f"{'=' * 70}\n")
-
-        if self.errors:
-            print(f"ERRORS ({len(self.errors)}):")
-            for error in self.errors:
-                print(f"   • {error}")
-            print()
-
-        if self.warnings:
-            print(f"WARNINGS ({len(self.warnings)}):")
-            for warning in self.warnings:
-                print(f"   • {warning}")
-            print()
-
-        if not self.errors and not self.warnings:
-            print("[OK] NO ERRORS OR WARNINGS FOUND!")
-            print("   Your pack looks good!\n")
-
-        print(f"{'=' * 70}")
-        print(f"Summary: {len(self.errors)} errors, {len(self.warnings)} warnings")
-        print(f"{'=' * 70}\n")
-
 
 def main():
-    import argparse
-
+    """Main entry point with customization options"""
     parser = argparse.ArgumentParser(
-        description="Cobblemon Pack Error Checker - Find issues in your pack",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description='Generate Cobblemon packs with full customization',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic Pokémon
+  python cobblemon_pack_generator.py --name Flamebird --number 999
+
+  # With custom stats and type
+  python cobblemon_pack_generator.py --name Aquadragon --number 1000 \\
+    --primary-type water --secondary-type dragon \\
+    --hp 100 --attack 80 --defence 90
+
+  # With moves and abilities
+  python cobblemon_pack_generator.py --name Earthgolem --number 1001 \\
+    --moves "1:tackle,7:rockthrow,20:earthquake,tm:stoneedge" \\
+    --abilities "sturdy,h:sandforce"
+
+  # Flying/Swimming Pokémon
+  python cobblemon_pack_generator.py --name Skywhale --number 1002 \\
+    --can-fly --can-swim --breathe-underwater
+        """
     )
 
-    parser.add_argument('--pack-path', type=str, help='Path to pack directory')
+    # Required arguments (unless using --show-current-pokemon)
+    parser.add_argument('--name', type=str, help='Pokémon name')
+    parser.add_argument('--number', type=int, help='Pokédex number')
+
+    # Type arguments
+    parser.add_argument('--primary-type', type=str, default=None, help='Primary type (default: normal on create)')
+    parser.add_argument('--secondary-type', type=str, help='Secondary type (optional)')
+
+    # Stats
+    parser.add_argument('--hp', type=int, default=None, help='HP stat (default: 50 on create)')
+    parser.add_argument('--attack', type=int, default=None, help='Attack stat (default: 50 on create)')
+    parser.add_argument('--defence', type=int, default=None, help='Defence stat (default: 50 on create)')
+    parser.add_argument('--special-attack', type=int, default=None, help='Special Attack (default: 50 on create)')
+    parser.add_argument('--special-defence', type=int, default=None, help='Special Defence (default: 50 on create)')
+    parser.add_argument('--speed', type=int, default=None, help='Speed stat (default: 50 on create)')
+
+    # Moves and abilities
+    parser.add_argument('--moves', type=str, help='Comma-separated moves (e.g. "1:tackle,7:ember,tm:flamethrower")')
+    parser.add_argument('--abilities', type=str, help='Comma-separated abilities (e.g. "blaze,h:solar_power")')
+
+    # Physical properties
+    parser.add_argument('--height', type=int, default=None, help='Height in decimeters (default: 10 on create)')
+    parser.add_argument('--weight', type=int, default=None, help='Weight in hectograms (default: 100 on create)')
+
+    # Movement abilities
+    parser.add_argument('--can-fly', action='store_true', help='Pokémon can fly')
+    parser.add_argument('--can-swim', action='store_true', help='Pokémon can swim')
+    parser.add_argument('--breathe-underwater', action='store_true', help='Can breathe underwater')
+    parser.add_argument('--no-look', action='store_true', help='Pokémon cannot look around (canLook=false)')
+
+    # Spawn configuration
+    parser.add_argument('--rarity', type=str, default=None, choices=['common', 'uncommon', 'rare', 'ultra-rare'],
+                        help='Spawn rarity (default: common on create)')
+    parser.add_argument('--spawn-level', type=str, default=None, help='Spawn level range (e.g. "10-40"; default: 5-30 on create)')
+    parser.add_argument('--spawn-biomes', type=str, default=None,
+                        help='Comma-separated biome tags (default: #minecraft:is_overworld on create)')
+
+    # Descriptions
+    parser.add_argument('--desc1', type=str, help='First Pokédex entry')
+    parser.add_argument('--desc2', type=str, help='Second Pokédex entry')
+
+    # Legendary/Mythical
+    parser.add_argument('--legendary', action='store_true',
+                        help='Make this a legendary Pokémon (sets catchRate=3, baseExp=290, adds legendary label)')
+
+    # Evolution
+    parser.add_argument('--evo-target', type=str, help='Pokémon this evolves into (e.g. "brightfix")')
+    parser.add_argument('--evo-method', type=str, choices=['level_up', 'item_interact', 'trade'],
+                        default='level_up', help='Evolution method (default: level_up)')
+    parser.add_argument('--evo-level', type=int, default=36, help='Level to evolve at (default: 36)')
+    parser.add_argument('--evo-item', type=str, help='Item required for item_interact or trade evolution')
+    parser.add_argument('--pre-evolution', type=str, help='Pokémon this evolves from (e.g. "grayfix")')
+    parser.add_argument('--remove-evolutions', action='store_true',
+                        help='(edit mode) Remove ALL evolutions from the Pokémon')
+
+    # Model customization
     parser.add_argument('--version', action='version',
-                        version=f'Cobblemon Pack Checker v{CHECKER_VERSION}')
+                        version=f'Cobblemon Pack Generator v{GENERATOR_VERSION}')
+    parser.add_argument('--head-bone', type=str, default=None,
+                        help='Head bone name (use "none" if model has no head; default: "head" on create)')
+
+    # Other options
+    parser.add_argument('--downloads', type=str, help='Custom Downloads path')
+    parser.add_argument('--no-cleanup', action='store_true', help='Keep source files')
+    parser.add_argument('--show-current-pokemon', action='store_true', help='Show all Pokémon currently in the packs')
+    parser.add_argument('--edit', type=str, help='Edit an existing Pokémon (use Pokémon name)')
+    parser.add_argument('--rename', type=str,
+                        help='(with --edit) Rename the Pokémon across ALL files/references')
+    parser.add_argument('--editfiles', type=str, metavar='POKEMON',
+                        help='Swap in new model/animation/texture files from the pack folder '
+                             '(old files are moved out; run again to undo)')
 
     args = parser.parse_args()
 
-    checker = CobblemonPackChecker(pack_path=args.pack_path)
-    checker.check_all()
+    # Create generator (needed by --show-current-pokemon, --edit, and creation)
+    generator = CobblemonPackGenerator(downloads_path=args.downloads)
+
+    # Handle --editfiles command
+    if args.editfiles:
+        generator.edit_files(args.editfiles)
+        return
+
+    # Handle --rename (requires --edit)
+    if args.rename:
+        if not args.edit:
+            parser.error('--rename requires --edit <current-name>')
+        generator.rename_pokemon(args.edit, args.rename)
+        return
+
+    # Handle --show-current-pokemon command
+    if args.show_current_pokemon:
+        generator.show_current_pokemon()
+        return
+
+    # Handle --edit command
+    if args.edit:
+        generator.edit_pokemon(args.edit, args)
+        return
+
+    # Validate required arguments when creating a Pokémon
+    if not args.name or not args.number:
+        parser.error("--name and --number are required when creating a Pokémon")
+
+    # Build configuration dictionary
+    config = {
+        'pokedex_number': args.number,
+        'primary_type': args.primary_type if args.primary_type is not None else 'normal',
+        'secondary_type': args.secondary_type,
+        'hp': args.hp if args.hp is not None else 50,
+        'attack': args.attack if args.attack is not None else 50,
+        'defence': args.defence if args.defence is not None else 50,
+        'special_attack': args.special_attack if args.special_attack is not None else 50,
+        'special_defence': args.special_defence if args.special_defence is not None else 50,
+        'speed': args.speed if args.speed is not None else 50,
+        'moves': args.moves,
+        'abilities': args.abilities,
+        'height': args.height if args.height is not None else 10,
+        'weight': args.weight if args.weight is not None else 100,
+        'can_fly': args.can_fly,
+        'can_swim': args.can_swim,
+        'breathe_underwater': args.breathe_underwater,
+        'can_look': not args.no_look,  # Inverted: --no-look sets canLook to false
+        'rarity': args.rarity if args.rarity is not None else 'common',
+        'spawn_level': args.spawn_level if args.spawn_level is not None else '5-30',
+        'spawn_biomes': args.spawn_biomes if args.spawn_biomes is not None else '#minecraft:is_overworld',
+        'desc1': args.desc1,
+        'desc2': args.desc2,
+        'head_bone': args.head_bone if args.head_bone is not None else 'head',
+        'legendary': args.legendary,
+        'evo_target': args.evo_target,
+        'evo_method': args.evo_method,
+        'evo_level': args.evo_level,
+        'evo_item': args.evo_item,
+        'pre_evolution': args.pre_evolution,
+    }
+
+    # Apply legendary settings if --legendary flag is used
+    if args.legendary:
+        config['catch_rate'] = 3  # Hard to catch (like Mewtwo)
+        config['base_exp'] = 290  # High experience yield
+        config['labels'] = ['custom', 'legendary']
+        config['friendship'] = 0  # Starts unfriendly
+        config['spawn_weight'] = 0.05  # Extremely rare spawn
+
+        # Auto-set ultra-rare if not specified
+        if args.rarity == 'common':  # Default value
+            config['rarity'] = 'ultra-rare'
+
+        print("\nLegendary mode activated!")
+        print("   - Catch rate: 3 (very hard)")
+        print("   - Base EXP: 290 (legendary level)")
+        print("   - Spawn weight: 0.05 (extremely rare)")
+        print("   - Labels: custom, legendary")
+
+    # Generate the packs
+    success = generator.generate_pokemon(
+        pokemon_name=args.name,
+        config=config,
+        cleanup=not args.no_cleanup
+    )
+
+    if not success:
+        exit(1)
 
 
 if __name__ == "__main__":
