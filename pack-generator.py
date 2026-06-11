@@ -27,9 +27,20 @@ v2.3 changelog (2026-06-11):
 v2.4 changelog (2026-06-11):
   - CHANGE: emoji-free console output (ASCII labels: [OK], ERROR:, WARNING:,
             NOTE:, TIP:) for Windows terminal compatibility
+v2.5 changelog (2026-06-11):
+  - NEW: species fields in BOTH create and edit: --catch-rate (alias
+         --catchrate), --male-ratio, --exp-group, --egg-cycles, --egg-groups,
+         --base-exp, --friendship, --ev-yield, --drops, --base-scale, --hitbox
+  - NEW: spawn fields in both modes: --spawn-weight, --can-see-sky
+         (false = cave spawner; explicit --spawn-weight overrides the
+         legendary 0.05 auto-weight)
+  - NEW: --not-legendary (edit) removes legendary status
+  - NEW: --secondary-type none (edit) removes secondary type (mono-type)
+  - NEW: --add-moves (edit) APPENDS moves instead of replacing
+  - CHANGE: --rarity edit now applies to ALL spawn entries (was first only)
 """
 
-GENERATOR_VERSION = "2.4"
+GENERATOR_VERSION = "2.5"
 
 import os
 import json
@@ -37,6 +48,46 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 import argparse
+
+
+VALID_EXP_GROUPS = {"slow", "medium_slow", "medium_fast", "fast", "erratic", "fluctuating"}
+VALID_EGG_GROUPS = {"monster", "water1", "bug", "flying", "field", "fairy", "grass", "humanlike",
+                    "water3", "mineral", "amorphous", "water2", "ditto", "dragon", "undiscovered"}
+EV_STATS = ("hp", "attack", "defence", "special_attack", "special_defence", "speed")
+
+
+def parse_ev_yield(spec: str):
+    """Parse "speed:2,attack:1" into a full six-stat dict (unspecified -> 0)."""
+    result = {s: 0 for s in EV_STATS}
+    aliases = {"spatk": "special_attack", "spdef": "special_defence", "spa": "special_attack",
+               "spd": "special_defence", "def": "defence", "atk": "attack", "spe": "speed"}
+    for part in spec.split(','):
+        if ':' not in part:
+            raise ValueError(f"'{part}' is not stat:amount")
+        stat, amount = part.rsplit(':', 1)
+        stat = aliases.get(stat.strip().lower(), stat.strip().lower())
+        if stat not in result:
+            raise ValueError(f"unknown stat '{stat}' (valid: {', '.join(EV_STATS)})")
+        result[stat] = int(amount)
+    return result
+
+
+def parse_drops(spec: str):
+    """Parse "minecraft:redstone:50,cobblemon:exp_candy_xs:10" into drop entries.
+    The LAST colon-separated field is the percentage; the rest is the item id."""
+    entries = []
+    for part in spec.split(','):
+        if ':' not in part:
+            raise ValueError(f"'{part}' is not item:percentage")
+        item, pct = part.rsplit(':', 1)
+        entries.append({"item": item.strip(), "percentage": float(pct.strip())})
+    return entries
+
+
+def parse_hitbox(spec: str):
+    """Parse "width,height" into a hitbox dict."""
+    w, h = spec.split(',', 1)
+    return {"width": float(w.strip()), "height": float(h.strip()), "fixed": False}
 
 
 class CobblemonPackGenerator:
@@ -201,24 +252,22 @@ class CobblemonPackGenerator:
             "baseExperienceYield": config.get('base_exp', 100),
             "experienceGroup": config.get('exp_group', 'medium_fast'),
             "eggCycles": config.get('egg_cycles', 20),
-            "eggGroups": [config.get('egg_group', 'field')],
+            "eggGroups": config.get('egg_groups', ['field']),
             "baseFriendship": config.get('friendship', 50),
-            "evYield": {
-                "hp": config.get('ev_hp', 1),
-                "attack": config.get('ev_attack', 0),
-                "defence": config.get('ev_defence', 0),
-                "special_attack": config.get('ev_sp_attack', 0),
-                "special_defence": config.get('ev_sp_defence', 0),
-                "speed": config.get('ev_speed', 0)
-            },
+            "evYield": (parse_ev_yield(config['ev_yield_spec'])
+                        if config.get('ev_yield_spec') else
+                        {"hp": 1, "attack": 0, "defence": 0,
+                         "special_attack": 0, "special_defence": 0, "speed": 0}),
             "height": config.get('height', 10),
             "weight": config.get('weight', 100),
             "aspects": [],
             "cannotDynamax": False,
             "drops": {
                 "amount": "1-2",
-                "entries": []
+                "entries": parse_drops(config['drops_spec']) if config.get('drops_spec') else []
             },
+            **({"baseScale": float(config['base_scale'])} if config.get('base_scale') else {}),
+            **({"hitbox": parse_hitbox(config['hitbox_spec'])} if config.get('hitbox_spec') else {}),
             "moves": moves,
             "abilities": abilities,
             "evolutions": self._build_evolutions(pokemon_lower, config),
@@ -845,7 +894,9 @@ class CobblemonPackGenerator:
                     with open(spawn_file, 'r') as f:
                         spawn_data = json.load(f)
                     old_rarity = spawn_data['spawns'][0].get('bucket', 'common')
-                    spawn_data['spawns'][0]['bucket'] = args.rarity
+                    for _entry in spawn_data['spawns']:
+                        if isinstance(_entry, dict):
+                            _entry['bucket'] = args.rarity
                     with open(spawn_file, 'w') as f:
                         json.dump(spawn_data, f, indent=2)
                     changes_made.append(f"Rarity: {old_rarity} → {args.rarity}")
@@ -1065,6 +1116,166 @@ class CobblemonPackGenerator:
             print(f"NOTE: preEvolution is informational. For {pre_evo} to actually evolve")
             print(f"   into {pokemon_lower}, also run:")
             print(f"   --edit {pre_evo.lower()} --evo-target {pokemon_lower} --evo-level <level>")
+
+        # --- Simple species fields (v2.5) ---
+        catch_rate = getattr(args, 'catch_rate', None)
+        if catch_rate is not None and catch_rate != data.get('catchRate'):
+            if not (3 <= catch_rate <= 255):
+                print(f"WARNING: Catch rate {catch_rate} outside vanilla range 3-255")
+            changes_made.append(f"Catch rate: {data.get('catchRate', '?')} → {catch_rate}")
+            data['catchRate'] = catch_rate
+
+        male_ratio = getattr(args, 'male_ratio', None)
+        if male_ratio is not None and male_ratio != data.get('maleRatio'):
+            if not (-1 <= male_ratio <= 1):
+                print(f"WARNING: maleRatio {male_ratio} outside range -1 to 1")
+            changes_made.append(f"Male ratio: {data.get('maleRatio', '?')} → {male_ratio}")
+            data['maleRatio'] = male_ratio
+
+        exp_group = getattr(args, 'exp_group', None)
+        if exp_group is not None and exp_group != data.get('experienceGroup'):
+            if exp_group not in VALID_EXP_GROUPS:
+                print(f"WARNING: '{exp_group}' is not a known experience group")
+                print(f"   Valid: {', '.join(sorted(VALID_EXP_GROUPS))}")
+            changes_made.append(f"Experience group: {data.get('experienceGroup', '?')} → {exp_group}")
+            data['experienceGroup'] = exp_group
+
+        egg_cycles = getattr(args, 'egg_cycles', None)
+        if egg_cycles is not None and egg_cycles != data.get('eggCycles'):
+            changes_made.append(f"Egg cycles: {data.get('eggCycles', '?')} → {egg_cycles}")
+            data['eggCycles'] = egg_cycles
+
+        egg_groups = getattr(args, 'egg_groups', None)
+        if egg_groups is not None:
+            groups = [g.strip().lower() for g in egg_groups.split(',')]
+            unknown = [g for g in groups if g not in VALID_EGG_GROUPS]
+            if unknown:
+                print(f"WARNING: Unknown egg group(s): {', '.join(unknown)}")
+                print(f"   Valid: {', '.join(sorted(VALID_EGG_GROUPS))}")
+            if groups != data.get('eggGroups'):
+                changes_made.append(f"Egg groups: {data.get('eggGroups', '?')} → {groups}")
+                data['eggGroups'] = groups
+
+        base_exp = getattr(args, 'base_exp', None)
+        if base_exp is not None and base_exp != data.get('baseExperienceYield'):
+            changes_made.append(f"Base exp yield: {data.get('baseExperienceYield', '?')} → {base_exp}")
+            data['baseExperienceYield'] = base_exp
+
+        friendship = getattr(args, 'friendship', None)
+        if friendship is not None and friendship != data.get('baseFriendship'):
+            changes_made.append(f"Base friendship: {data.get('baseFriendship', '?')} → {friendship}")
+            data['baseFriendship'] = friendship
+
+        ev_spec = getattr(args, 'ev_yield', None)
+        if ev_spec is not None:
+            try:
+                new_evs = parse_ev_yield(ev_spec)
+                if sum(new_evs.values()) > 3:
+                    print(f"WARNING: Total EV yield {sum(new_evs.values())} exceeds vanilla max of 3")
+                if new_evs != data.get('evYield'):
+                    nonzero = ', '.join(f"{k}:{v}" for k, v in new_evs.items() if v)
+                    changes_made.append(f"EV yield: {nonzero or 'none'}")
+                    data['evYield'] = new_evs
+            except ValueError as e:
+                print(f"ERROR: Bad --ev-yield: {e}")
+
+        drops_spec = getattr(args, 'drops', None)
+        if drops_spec is not None:
+            try:
+                entries = parse_drops(drops_spec)
+                data['drops'] = {"amount": data.get('drops', {}).get('amount', '1-2'),
+                                 "entries": entries}
+                changes_made.append(f"Drops: {len(entries)} entr{'y' if len(entries) == 1 else 'ies'} "
+                                    f"({', '.join(e['item'] for e in entries)})")
+            except ValueError as e:
+                print(f"ERROR: Bad --drops: {e}")
+
+        base_scale = getattr(args, 'base_scale', None)
+        if base_scale is not None and base_scale != data.get('baseScale'):
+            changes_made.append(f"Base scale: {data.get('baseScale', 'default')} → {base_scale}")
+            data['baseScale'] = float(base_scale)
+
+        hitbox_spec = getattr(args, 'hitbox', None)
+        if hitbox_spec is not None:
+            try:
+                hb = parse_hitbox(hitbox_spec)
+                if hb != data.get('hitbox'):
+                    changes_made.append(f"Hitbox: {hb['width']}x{hb['height']}")
+                    data['hitbox'] = hb
+            except ValueError as e:
+                print(f"ERROR: Bad --hitbox (format: \"width,height\"): {e}")
+
+        # Un-set legendary status
+        if getattr(args, 'not_legendary', False):
+            labels = data.get('labels', [])
+            if 'legendary' in labels:
+                labels.remove('legendary')
+                data['labels'] = labels
+                changes_made.append("Legendary: REMOVED")
+                print(f"NOTE: Spawn weight unchanged — if it was set to 0.05 for legendary,")
+                print(f"   consider also: --spawn-weight 10")
+            else:
+                print(f"NOTE: {pokemon_lower} wasn't legendary.")
+
+        # Remove secondary type with --secondary-type none
+        # (handled here as a pre-check so the normal type-edit code below sees None)
+        if getattr(args, 'secondary_type', None) and args.secondary_type.lower() == 'none':
+            if 'secondaryType' in data:
+                changes_made.append(f"Secondary type: {data['secondaryType']} → REMOVED (mono-type)")
+                del data['secondaryType']
+            else:
+                print(f"NOTE: {pokemon_lower} has no secondary type.")
+            args.secondary_type = None  # prevent the regular type editor from re-adding it
+
+        # --- Spawn-file fields (v2.5): weight and canSeeSky, all entries ---
+        spawn_weight = getattr(args, 'spawn_weight', None)
+        can_see_sky = getattr(args, 'can_see_sky', None)
+        if spawn_weight is not None or can_see_sky is not None:
+            spawn_file = (self.behavior_pack_dir / "data" / "cobblemon" /
+                          "spawn_pool_world" / f"{pokemon_lower}.json")
+            if spawn_file.exists():
+                try:
+                    with open(spawn_file, 'r') as f:
+                        spawn_data = json.load(f)
+                    entries = spawn_data.get('spawns', [])
+                    for entry in entries:
+                        if not isinstance(entry, dict):
+                            continue
+                        if spawn_weight is not None:
+                            entry['weight'] = spawn_weight
+                        if can_see_sky is not None:
+                            entry.setdefault('condition', {})['canSeeSky'] = (can_see_sky == 'true')
+                    with open(spawn_file, 'w') as f:
+                        json.dump(spawn_data, f, indent=2)
+                    n = len(entries)
+                    if spawn_weight is not None:
+                        if spawn_weight <= 0:
+                            print(f"WARNING: Weight {spawn_weight} means it will NEVER spawn!")
+                        changes_made.append(f"Spawn weight: {spawn_weight} ({n} entr{'y' if n == 1 else 'ies'})")
+                    if can_see_sky is not None:
+                        where = "surface only" if can_see_sky == 'true' else "underground/caves allowed"
+                        changes_made.append(f"canSeeSky: {can_see_sky} ({where}, {n} entr{'y' if n == 1 else 'ies'})")
+                except Exception as e:
+                    print(f"WARNING: Could not update spawn file: {e}")
+            else:
+                print(f"WARNING: Spawn file not found: {spawn_file}")
+
+        # Append moves (unlike --moves which replaces)
+        add_moves = getattr(args, 'add_moves', None)
+        if add_moves is not None:
+            if getattr(args, 'moves', None):
+                print(f"WARNING: Both --moves and --add-moves given; --moves (replace) runs below,")
+                print(f"   so --add-moves is appending to the REPLACED list.")
+            existing = data.get('moves', []) or []
+            new_moves = [m.strip() for m in add_moves.split(',') if m.strip()]
+            appended = [m for m in new_moves if m not in existing]
+            skipped = len(new_moves) - len(appended)
+            if appended:
+                data['moves'] = existing + appended
+                changes_made.append(f"Moves appended: {len(appended)} "
+                                    f"({len(existing)} kept{f', {skipped} duplicates skipped' if skipped else ''})")
+            else:
+                print(f"NOTE: All {len(new_moves)} moves already known — nothing appended.")
 
         # Update moves if provided
         if args.moves:
@@ -1621,6 +1832,38 @@ Examples:
     parser.add_argument('--remove-evolutions', action='store_true',
                         help='(edit mode) Remove ALL evolutions from the Pokémon')
 
+    # Species fields (work in BOTH create and edit modes)
+    parser.add_argument('--catch-rate', '--catchrate', type=int, default=None, dest='catch_rate',
+                        help='Catch rate 3-255 (default: 45 on create; 3=legendary-hard, 255=trivial)')
+    parser.add_argument('--male-ratio', type=float, default=None,
+                        help='Male ratio -1 to 1 (-1=genderless, 0=all female, 1=all male; default: 0.5 on create)')
+    parser.add_argument('--exp-group', type=str, default=None,
+                        help='Experience group (default: medium_fast on create)')
+    parser.add_argument('--egg-cycles', type=int, default=None,
+                        help='Egg cycles (default: 20 on create)')
+    parser.add_argument('--egg-groups', type=str, default=None,
+                        help='Comma-separated egg groups (default: field on create)')
+    parser.add_argument('--base-exp', type=int, default=None,
+                        help='Base experience yield (default: 100 on create)')
+    parser.add_argument('--friendship', type=int, default=None,
+                        help='Base friendship (default: 50 on create)')
+    parser.add_argument('--ev-yield', type=str, default=None,
+                        help='EV yield, e.g. "speed:2" or "attack:1,hp:1" (default: hp:1 on create)')
+    parser.add_argument('--drops', type=str, default=None,
+                        help='Item drops, e.g. "minecraft:redstone:50,cobblemon:exp_candy_xs:10" (item:percentage)')
+    parser.add_argument('--base-scale', type=float, default=None,
+                        help='Model scale multiplier')
+    parser.add_argument('--hitbox', type=str, default=None,
+                        help='Hitbox "width,height" (e.g. "1.5,2")')
+    parser.add_argument('--spawn-weight', type=float, default=None,
+                        help='Spawn weight (default: 10 on create, 0.05 for legendary)')
+    parser.add_argument('--can-see-sky', type=str, default=None, choices=['true', 'false'],
+                        help='Spawn condition: false = underground/cave spawner')
+    parser.add_argument('--not-legendary', action='store_true',
+                        help='(edit mode) Remove legendary status')
+    parser.add_argument('--add-moves', type=str, default=None,
+                        help='(edit mode) APPEND moves to the existing list (unlike --moves which replaces)')
+
     # Model customization
     parser.add_argument('--version', action='version',
                         version=f'Cobblemon Pack Generator v{GENERATOR_VERSION}')
@@ -1700,6 +1943,20 @@ Examples:
         'evo_level': args.evo_level,
         'evo_item': args.evo_item,
         'pre_evolution': args.pre_evolution,
+        'catch_rate': args.catch_rate if args.catch_rate is not None else 45,
+        'male_ratio': args.male_ratio if args.male_ratio is not None else 0.5,
+        'exp_group': args.exp_group if args.exp_group is not None else 'medium_fast',
+        'egg_cycles': args.egg_cycles if args.egg_cycles is not None else 20,
+        'egg_groups': ([g.strip() for g in args.egg_groups.split(',')]
+                       if args.egg_groups is not None else ['field']),
+        'base_exp': args.base_exp if args.base_exp is not None else 100,
+        'friendship': args.friendship if args.friendship is not None else 50,
+        'ev_yield_spec': args.ev_yield,
+        'drops_spec': args.drops,
+        'base_scale': args.base_scale,
+        'hitbox_spec': args.hitbox,
+        'spawn_surface': (args.can_see_sky != 'false') if args.can_see_sky is not None else True,
+        'spawn_weight': args.spawn_weight if args.spawn_weight is not None else 10.0,
     }
 
     # Apply legendary settings if --legendary flag is used
@@ -1708,7 +1965,8 @@ Examples:
         config['base_exp'] = 290  # High experience yield
         config['labels'] = ['custom', 'legendary']
         config['friendship'] = 0  # Starts unfriendly
-        config['spawn_weight'] = 0.05  # Extremely rare spawn
+        if args.spawn_weight is None:
+            config['spawn_weight'] = 0.05  # Extremely rare spawn
 
         # Auto-set ultra-rare if not specified
         if args.rarity == 'common':  # Default value
