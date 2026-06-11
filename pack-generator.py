@@ -38,9 +38,17 @@ v2.5 changelog (2026-06-11):
   - NEW: --secondary-type none (edit) removes secondary type (mono-type)
   - NEW: --add-moves (edit) APPENDS moves instead of replacing
   - CHANGE: --rarity edit now applies to ALL spawn entries (was first only)
+v2.6 changelog (2026-06-11):
+  - NEW: multi-spawn-entry management (edit mode only):
+         --append "bucket=rare,level=20-40,weight=5,biomes=#a;#b,canSeeSky=false"
+           (key=value pairs, ';' inside lists, or raw JSON; auto-numbered id)
+         --removespawn IDX (1-based, matching pack checker numbering)
+         --removelastspawn
+         --spawnset "entry1|entry2" (or JSON array) + --confirmset
+           (without --confirmset you get a preview and nothing changes)
 """
 
-GENERATOR_VERSION = "2.5"
+GENERATOR_VERSION = "2.6"
 
 import os
 import json
@@ -54,6 +62,69 @@ VALID_EXP_GROUPS = {"slow", "medium_slow", "medium_fast", "fast", "erratic", "fl
 VALID_EGG_GROUPS = {"monster", "water1", "bug", "flying", "field", "fairy", "grass", "humanlike",
                     "water3", "mineral", "amorphous", "water2", "ditto", "dragon", "undiscovered"}
 EV_STATS = ("hp", "attack", "defence", "special_attack", "special_defence", "speed")
+VALID_BUCKETS = {"common", "uncommon", "rare", "ultra-rare"}
+
+
+def parse_spawn_entry(spec: str, pokemon_name: str):
+    """Parse a spawn entry spec into a full entry dict.
+
+    Accepts either JSON ('{"bucket": "rare", ...}') or compact key=value pairs:
+        "bucket=rare,level=20-40,weight=5,biomes=#minecraft:is_savanna;#minecraft:is_badlands,canSeeSky=false"
+    Biome/preset lists use ';' between items. Unspecified fields get the same
+    defaults as creation. Raises ValueError on bad input."""
+    defaults = {
+        "id": None,  # filled by caller (auto-numbered)
+        "pokemon": pokemon_name,
+        "presets": ["natural"],
+        "type": "pokemon",
+        "context": "grounded",
+        "bucket": "common",
+        "level": "5-30",
+        "weight": 10.0,
+        "condition": {"canSeeSky": True, "biomes": ["#minecraft:is_overworld"]},
+    }
+    spec = spec.strip()
+    if spec.startswith('{'):
+        parsed = json.loads(spec)
+        if not isinstance(parsed, dict):
+            raise ValueError("JSON spawn entry must be an object")
+        entry = defaults
+        cond = entry["condition"]
+        entry.update(parsed)
+        if "condition" in parsed:
+            cond.update(parsed["condition"])
+        entry["condition"] = cond
+    else:
+        entry = defaults
+        valid_keys = {"id", "pokemon", "bucket", "level", "weight", "biomes",
+                      "canseesky", "can_see_sky", "context", "presets"}
+        for pair in spec.split(','):
+            if '=' not in pair:
+                raise ValueError(f"'{pair}' is not key=value")
+            key, value = pair.split('=', 1)
+            key_norm = key.strip().lower()
+            value = value.strip()
+            if key_norm not in valid_keys:
+                raise ValueError(f"unknown key '{key.strip()}' "
+                                 f"(valid: bucket, level, weight, biomes, canSeeSky, "
+                                 f"context, presets, id, pokemon)")
+            if key_norm == "weight":
+                entry["weight"] = float(value)
+            elif key_norm == "biomes":
+                entry["condition"]["biomes"] = [b.strip() for b in value.split(';') if b.strip()]
+            elif key_norm in ("canseesky", "can_see_sky"):
+                if value.lower() not in ("true", "false"):
+                    raise ValueError("canSeeSky must be true or false")
+                entry["condition"]["canSeeSky"] = (value.lower() == "true")
+            elif key_norm == "presets":
+                entry["presets"] = [p.strip() for p in value.split(';') if p.strip()]
+            else:
+                entry[key_norm if key_norm != "pokemon" else "pokemon"] = value
+    if entry.get("bucket") not in VALID_BUCKETS:
+        raise ValueError(f"invalid bucket '{entry.get('bucket')}' "
+                         f"(valid: {', '.join(sorted(VALID_BUCKETS))})")
+    return entry
+
 
 
 def parse_ev_yield(spec: str):
@@ -1227,6 +1298,114 @@ class CobblemonPackGenerator:
                 print(f"NOTE: {pokemon_lower} has no secondary type.")
             args.secondary_type = None  # prevent the regular type editor from re-adding it
 
+        # --- Spawn ENTRY management (v2.6): structure ops run BEFORE bulk field edits ---
+        append_spec = getattr(args, 'append_spawn', None)
+        remove_idx = getattr(args, 'removespawn', None)
+        remove_last = getattr(args, 'removelastspawn', False)
+        spawnset_spec = getattr(args, 'spawnset', None)
+
+        if spawnset_spec is not None and (append_spec or remove_idx is not None or remove_last):
+            print(f"ERROR: --spawnset replaces everything; don't combine it with "
+                  f"--append/--removespawn/--removelastspawn. Skipping all spawn entry ops.")
+        elif append_spec or remove_idx is not None or remove_last or spawnset_spec is not None:
+            spawn_file = (self.behavior_pack_dir / "data" / "cobblemon" /
+                          "spawn_pool_world" / f"{pokemon_lower}.json")
+            if spawn_file.exists():
+                with open(spawn_file, 'r') as f:
+                    spawn_data = json.load(f)
+            else:
+                print(f"NOTE: No spawn file existed — creating one.")
+                spawn_data = {"enabled": True, "neededInstalledMods": [],
+                              "neededUninstalledMods": [], "spawns": []}
+            spawns = spawn_data.setdefault('spawns', [])
+            spawn_dirty = False
+
+            def describe(entry):
+                cond = entry.get('condition', {})
+                return (f"bucket={entry.get('bucket')}, level={entry.get('level')}, "
+                        f"weight={entry.get('weight')}, "
+                        f"biomes={';'.join(cond.get('biomes', []))}, "
+                        f"canSeeSky={cond.get('canSeeSky', True)}")
+
+            # Full replacement (preview unless --confirmset)
+            if spawnset_spec is not None:
+                try:
+                    spec = spawnset_spec.strip()
+                    if spec.startswith('['):
+                        raw_entries = json.loads(spec)
+                        if not isinstance(raw_entries, list):
+                            raise ValueError("JSON spawnset must be an array")
+                        new_entries = [parse_spawn_entry(json.dumps(e), pokemon_lower)
+                                       for e in raw_entries]
+                    else:
+                        new_entries = [parse_spawn_entry(part, pokemon_lower)
+                                       for part in spec.split('|') if part.strip()]
+                    for i, e in enumerate(new_entries):
+                        if not e.get('id'):
+                            e['id'] = f"{pokemon_lower}-{i + 1}"
+                    if not getattr(args, 'confirmset', False):
+                        print(f"\nPREVIEW: --spawnset would REPLACE all {len(spawns)} current "
+                              f"entr{'y' if len(spawns) == 1 else 'ies'} with {len(new_entries)}:")
+                        for i, e in enumerate(new_entries, 1):
+                            print(f"   #{i}: {describe(e)}")
+                        print(f"\nNothing was changed. Re-run with --confirmset to apply.\n")
+                    else:
+                        spawn_data['spawns'] = new_entries
+                        spawns = new_entries
+                        spawn_dirty = True
+                        changes_made.append(f"Spawn entries REPLACED: now {len(new_entries)} "
+                                            f"entr{'y' if len(new_entries) == 1 else 'ies'}")
+                        for i, e in enumerate(new_entries, 1):
+                            changes_made.append(f"  #{i}: {describe(e)}")
+                except (ValueError, json.JSONDecodeError) as e:
+                    print(f"ERROR: Bad --spawnset: {e}")
+            else:
+                # Removals first, then append
+                if remove_idx is not None:
+                    if 1 <= remove_idx <= len(spawns):
+                        removed = spawns.pop(remove_idx - 1)
+                        spawn_dirty = True
+                        changes_made.append(f"Spawn entry #{remove_idx} removed "
+                                            f"({describe(removed)})")
+                    else:
+                        print(f"ERROR: --removespawn {remove_idx} out of range "
+                              f"(have {len(spawns)} entr{'y' if len(spawns) == 1 else 'ies'}, "
+                              f"indices are 1-based)")
+                if remove_last:
+                    if spawns:
+                        removed = spawns.pop()
+                        spawn_dirty = True
+                        changes_made.append(f"Last spawn entry removed ({describe(removed)})")
+                    else:
+                        print(f"NOTE: No spawn entries to remove.")
+                if append_spec is not None:
+                    try:
+                        entry = parse_spawn_entry(append_spec, pokemon_lower)
+                        if not entry.get('id'):
+                            existing_nums = []
+                            for e in spawns:
+                                sid = str(e.get('id', ''))
+                                if sid.startswith(f"{pokemon_lower}-"):
+                                    try:
+                                        existing_nums.append(int(sid.rsplit('-', 1)[1]))
+                                    except ValueError:
+                                        pass
+                            entry['id'] = f"{pokemon_lower}-{max(existing_nums, default=0) + 1}"
+                        spawns.append(entry)
+                        spawn_dirty = True
+                        changes_made.append(f"Spawn entry appended as #{len(spawns)} "
+                                            f"({describe(entry)})")
+                    except (ValueError, json.JSONDecodeError) as e:
+                        print(f"ERROR: Bad --append: {e}")
+                        print(f"   Format: \"bucket=rare,level=20-40,weight=5,"
+                              f"biomes=#minecraft:is_savanna;#minecraft:is_badlands,canSeeSky=false\"")
+
+            if spawn_dirty:
+                if not spawns:
+                    print(f"WARNING: Spawn list is now EMPTY — {pokemon_lower} will never spawn!")
+                with open(spawn_file, 'w') as f:
+                    json.dump(spawn_data, f, indent=2)
+
         # --- Spawn-file fields (v2.5): weight and canSeeSky, all entries ---
         spawn_weight = getattr(args, 'spawn_weight', None)
         can_see_sky = getattr(args, 'can_see_sky', None)
@@ -1859,6 +2038,20 @@ Examples:
                         help='Spawn weight (default: 10 on create, 0.05 for legendary)')
     parser.add_argument('--can-see-sky', type=str, default=None, choices=['true', 'false'],
                         help='Spawn condition: false = underground/cave spawner')
+    # Spawn entry management (edit mode only)
+    parser.add_argument('--append', type=str, default=None, metavar='SPAWNENTRY', dest='append_spawn',
+                        help='(edit) Append a spawn entry: "bucket=rare,level=20-40,weight=5,'
+                             'biomes=#minecraft:is_savanna;#minecraft:is_badlands,canSeeSky=false" or JSON')
+    parser.add_argument('--removespawn', type=int, default=None, metavar='IDX',
+                        help='(edit) Remove spawn entry by 1-based index (as shown by the pack checker)')
+    parser.add_argument('--removelastspawn', action='store_true',
+                        help='(edit) Remove the last spawn entry')
+    parser.add_argument('--spawnset', type=str, default=None,
+                        help='(edit) REPLACE the whole spawns array. Entries separated by "|" in '
+                             'key=value form, or a JSON array. Requires --confirmset.')
+    parser.add_argument('--confirmset', action='store_true',
+                        help='Confirm a --spawnset replacement (without it you get a preview only)')
+
     parser.add_argument('--not-legendary', action='store_true',
                         help='(edit mode) Remove legendary status')
     parser.add_argument('--add-moves', type=str, default=None,
