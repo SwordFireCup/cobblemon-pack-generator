@@ -399,6 +399,14 @@ class CobblemonPackChecker:
         "water3", "mineral", "amorphous", "water2", "ditto", "dragon", "undiscovered"
     }
 
+    # Valid experience groups
+    VALID_EXP_GROUPS = {
+        "slow", "medium_slow", "medium_fast", "fast", "erratic", "fluctuating"
+    }
+
+    # Valid spawn buckets
+    VALID_BUCKETS = {"common", "uncommon", "rare", "ultra-rare"}
+
     def __init__(self, pack_path: str = None):
         if pack_path is None:
             pack_path = str(Path.home() / "Downloads" / "Mod-ResourceAndBehavior-Packs")
@@ -409,19 +417,26 @@ class CobblemonPackChecker:
         self.info = []
         self.dex_numbers = {}  # Track dex numbers to find duplicates
         self.model_bones = {}  # Cache model bones for validation
+        self.animation_names = {}  # Cache animation names (pokemon -> set of suffixes)
+        self.model_texture_size = {}  # Cache declared texture_width/height per pokemon
+        self.species_evolutions = {}  # Cache evolutions per pokemon (for target checks)
+        self.species_pokedex_keys = {}  # Cache pokedex lang keys declared per pokemon
+        self.all_species = set()  # All custom species names found
 
     def check_all(self):
         """Run all checks"""
         print(f"\n{'=' * 70}")
-        print("🔍 COBBLEMON PACK ERROR CHECKER v2.0")
+        print("🔍 COBBLEMON PACK ERROR CHECKER v2.1")
         print(f"{'=' * 70}")
-        print("✨ NEW in v2.0:")
-        print("   • Filename validation (dots vs underscores)")
-        print("   • Poser 'head' field null bug detection")
-        print("   • Animation-Model bone matching")
-        print("   • Case sensitivity checks")
-        print("   • PNG format validation")
-        print("   • Move list validation")
+        print("✨ NEW in v2.1:")
+        print("   • Resolver texture/poser path verification")
+        print("   • Poser → animation cross-checking")
+        print("   • Texture dimensions vs model UV size")
+        print("   • Evolution target validation")
+        print("   • Lang file completeness (name/desc keys)")
+        print("   • species_additions validation")
+        print("   • Orphan file detection")
+        print("   • Spawn file deep checks + pack.mcmeta validation")
         print(f"{'=' * 70}\n")
         print(f"📁 Checking pack: {self.pack_path}\n")
 
@@ -430,6 +445,7 @@ class CobblemonPackChecker:
 
         # Find all Pokemon
         pokemon_list = self.find_all_pokemon()
+        self.all_species = set(pokemon_list)
 
         if not pokemon_list:
             self.errors.append("No Pokémon found in pack!")
@@ -441,6 +457,14 @@ class CobblemonPackChecker:
         # Check each Pokemon
         for pokemon_name in pokemon_list:
             self.check_pokemon(pokemon_name)
+
+        # Pack-level cross-checks (need all species data collected first)
+        print("🔗 Running pack-level cross-checks...")
+        self.check_evolution_targets()
+        self.check_lang_file(pokemon_list)
+        self.check_species_additions()
+        self.check_orphan_files()
+        print()
 
         # Print results
         self.print_results()
@@ -455,6 +479,7 @@ class CobblemonPackChecker:
             self.errors.append("Missing resource_pack folder!")
         else:
             self.info.append("✓ resource_pack folder exists")
+            self._check_mcmeta(resource_pack / "pack.mcmeta", "resource_pack", expected_format=34)
 
         # Check behavior pack
         behavior_pack = self.pack_path / "behavior_pack"
@@ -462,8 +487,36 @@ class CobblemonPackChecker:
             self.errors.append("Missing behavior_pack folder!")
         else:
             self.info.append("✓ behavior_pack folder exists")
+            self._check_mcmeta(behavior_pack / "pack.mcmeta", "behavior_pack", expected_format=48)
 
         print()
+
+    def _check_mcmeta(self, mcmeta_file: Path, pack_label: str, expected_format: int):
+        """Validate a pack.mcmeta file exists and has the right pack_format for 1.21.1"""
+        if not mcmeta_file.exists():
+            self.errors.append(f"{pack_label}: Missing pack.mcmeta! Pack won't load without it.")
+            return
+        try:
+            with open(mcmeta_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            pack = data.get("pack")
+            if not isinstance(pack, dict):
+                self.errors.append(f"{pack_label}: pack.mcmeta missing 'pack' object")
+                return
+            fmt = pack.get("pack_format")
+            if fmt is None:
+                self.errors.append(f"{pack_label}: pack.mcmeta missing 'pack_format'")
+            elif fmt != expected_format:
+                self.warnings.append(
+                    f"{pack_label}: pack_format is {fmt}, expected {expected_format} for Minecraft 1.21.1")
+            else:
+                self.info.append(f"✓ {pack_label}/pack.mcmeta valid (format {fmt})")
+            if "description" not in pack:
+                self.warnings.append(f"{pack_label}: pack.mcmeta has no 'description'")
+        except json.JSONDecodeError as e:
+            self.errors.append(f"{pack_label}: Invalid JSON in pack.mcmeta: {e}")
+        except Exception as e:
+            self.warnings.append(f"{pack_label}: Could not read pack.mcmeta: {e}")
 
     def find_all_pokemon(self) -> List[str]:
         """Find all Pokemon in the pack"""
@@ -692,6 +745,56 @@ class CobblemonPackChecker:
                         if egg_group.lower() not in self.VALID_EGG_GROUPS:
                             self.warnings.append(f"{pokemon_name}: Unknown egg group '{egg_group}'")
 
+            # NEW v2.1: Validate experienceGroup
+            if "experienceGroup" in data:
+                exp_group = data["experienceGroup"]
+                if exp_group not in self.VALID_EXP_GROUPS:
+                    self.warnings.append(f"{pokemon_name}: Unknown experienceGroup '{exp_group}'")
+                    self.warnings.append(f"  Valid: {', '.join(sorted(self.VALID_EXP_GROUPS))}")
+
+            # NEW v2.1: Validate maleRatio
+            if "maleRatio" in data:
+                male_ratio = data["maleRatio"]
+                if isinstance(male_ratio, (int, float)):
+                    if not (-1 <= male_ratio <= 1):
+                        self.warnings.append(
+                            f"{pokemon_name}: maleRatio {male_ratio} out of range (-1 genderless to 1 all-male)")
+                else:
+                    self.errors.append(f"{pokemon_name}: maleRatio must be a number")
+
+            # NEW v2.1: Validate evolution structure + cache targets for cross-check
+            if "evolutions" in data:
+                evolutions = data["evolutions"]
+                if isinstance(evolutions, list):
+                    self.species_evolutions[pokemon_name] = evolutions
+                    for i, evo in enumerate(evolutions):
+                        if not isinstance(evo, dict):
+                            self.errors.append(f"{pokemon_name}: Evolution #{i + 1} is not an object")
+                            continue
+                        if "result" not in evo:
+                            self.errors.append(f"{pokemon_name}: Evolution #{i + 1} missing 'result'")
+                        if "variant" not in evo:
+                            self.errors.append(f"{pokemon_name}: Evolution #{i + 1} missing 'variant'")
+                        elif evo["variant"] == "level_up":
+                            reqs = evo.get("requirements", [])
+                            has_level = any(
+                                isinstance(r, dict) and r.get("variant") == "level" for r in reqs)
+                            if not has_level:
+                                self.warnings.append(
+                                    f"{pokemon_name}: level_up evolution to '{evo.get('result', '?')}' "
+                                    f"has no level requirement (will evolve at ANY level-up!)")
+                        elif evo["variant"] == "item_interact" and "requiredContext" not in evo:
+                            self.warnings.append(
+                                f"{pokemon_name}: item_interact evolution to '{evo.get('result', '?')}' "
+                                f"has no 'requiredContext' item")
+                else:
+                    self.errors.append(f"{pokemon_name}: 'evolutions' must be an array")
+
+            # NEW v2.1: Cache declared pokedex lang keys for lang file check
+            if isinstance(data.get("pokedex"), list):
+                self.species_pokedex_keys[pokemon_name] = [
+                    k for k in data["pokedex"] if isinstance(k, str)]
+
             return True
 
         except json.JSONDecodeError as e:
@@ -744,6 +847,16 @@ class CobblemonPackChecker:
                         self.model_bones = {}
                     self.model_bones[pokemon_name] = bone_names
 
+                    # NEW v2.1: Cache declared texture size for texture dimension check
+                    desc = geometries[0].get("description", {})
+                    tex_w = desc.get("texture_width")
+                    tex_h = desc.get("texture_height")
+                    if isinstance(tex_w, (int, float)) and isinstance(tex_h, (int, float)):
+                        self.model_texture_size[pokemon_name] = (int(tex_w), int(tex_h))
+                    else:
+                        self.warnings.append(
+                            f"{pokemon_name}: Model missing texture_width/texture_height in description")
+
             # Check file size (warn if suspiciously small)
             file_size = model_file.stat().st_size
             if file_size < 100:
@@ -785,6 +898,19 @@ class CobblemonPackChecker:
 
             animations = data["animations"]
 
+            # NEW v2.1: Cache animation names for poser cross-check
+            # Keys look like "animation.molecul.ground_idle" -> cache "ground_idle"
+            anim_suffixes = set()
+            expected_prefix = f"animation.{pokemon_name}."
+            for anim_key in animations.keys():
+                if anim_key.startswith(expected_prefix):
+                    anim_suffixes.add(anim_key[len(expected_prefix):])
+                else:
+                    self.warnings.append(
+                        f"{pokemon_name}: Animation key '{anim_key}' doesn't follow "
+                        f"'animation.{pokemon_name}.<name>' convention (poser may not find it)")
+            self.animation_names[pokemon_name] = anim_suffixes
+
             # Check required animations
             for required_anim in self.REQUIRED_ANIMATIONS:
                 anim_key = f"animation.{pokemon_name}.{required_anim}"
@@ -814,6 +940,45 @@ class CobblemonPackChecker:
             self.errors.append(f"{pokemon_name}: Error reading animation file: {e}")
             return False
 
+    def _read_png_size(self, png_path: Path):
+        """Read width/height from a PNG's IHDR chunk. Returns (w, h) or None."""
+        try:
+            with open(png_path, 'rb') as f:
+                header = f.read(24)
+            if len(header) < 24 or header[:8] != b'\x89PNG\r\n\x1a\n':
+                return None
+            import struct
+            width, height = struct.unpack(">II", header[16:24])
+            return (width, height)
+        except Exception:
+            return None
+
+    def _check_texture_dimensions(self, pokemon_name: str, texture_path: Path, label: str):
+        """NEW v2.1: Compare actual PNG dimensions against the model's declared UV size"""
+        if pokemon_name not in self.model_texture_size:
+            return
+        declared_w, declared_h = self.model_texture_size[pokemon_name]
+        if declared_w <= 0 or declared_h <= 0:
+            return
+        size = self._read_png_size(texture_path)
+        if size is None:
+            return
+        actual_w, actual_h = size
+        if (actual_w, actual_h) == (declared_w, declared_h):
+            return
+        # Proportional scaling (e.g. 128x128 for a 64x64 UV map) renders fine
+        if actual_w * declared_h == actual_h * declared_w:
+            self.info.append(
+                f"✓ {pokemon_name}: {label} is {actual_w}x{actual_h} "
+                f"(proportionally scaled from declared {declared_w}x{declared_h} — OK)")
+        else:
+            self.errors.append(
+                f"{pokemon_name}: ❌ {label} is {actual_w}x{actual_h} but model declares "
+                f"{declared_w}x{declared_h}!")
+            self.errors.append(
+                f"  Mismatched aspect ratio will garble the texture in-game. "
+                f"Re-export at {declared_w}x{declared_h} (or a clean multiple).")
+
     def check_texture_files(self, pokemon_name: str) -> bool:
         """Check texture PNG files"""
         texture_dir = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "textures" / "pokemon" / pokemon_name
@@ -840,10 +1005,23 @@ class CobblemonPackChecker:
         except Exception as e:
             self.warnings.append(f"{pokemon_name}: Could not validate texture format: {e}")
 
+        # NEW v2.1: Compare texture dimensions against model's declared UV size
+        self._check_texture_dimensions(pokemon_name, regular_texture, f"{pokemon_name}.png")
+
         # Check shiny texture
         shiny_texture = texture_dir / f"{pokemon_name}_shiny.png"
         if not shiny_texture.exists():
             self.warnings.append(f"{pokemon_name}: Missing shiny texture: {shiny_texture}")
+        else:
+            # NEW v2.1: Validate shiny PNG format and dimensions too
+            try:
+                with open(shiny_texture, 'rb') as f:
+                    if f.read(8) != b'\x89PNG\r\n\x1a\n':
+                        self.errors.append(
+                            f"{pokemon_name}: ❌ '{pokemon_name}_shiny.png' is not a valid PNG file!")
+            except Exception:
+                pass
+            self._check_texture_dimensions(pokemon_name, shiny_texture, f"{pokemon_name}_shiny.png")
 
         return True
 
@@ -889,6 +1067,8 @@ class CobblemonPackChecker:
 
             # Check each pose for animation references
             poses = data.get("poses", {})
+            import re as _re
+            bedrock_pattern = _re.compile(r'bedrock\(\s*([a-z0-9_]+)\s*,\s*([a-z0-9_]+)\s*\)')
             for pose_name, pose_data in poses.items():
                 if isinstance(pose_data, dict):
                     # Check for animations array
@@ -900,6 +1080,23 @@ class CobblemonPackChecker:
                                 if "look" in str(anim).lower() and "head" not in data:
                                     self.warnings.append(
                                         f"{pokemon_name}: Pose '{pose_name}' has 'look' animation but no head bone defined")
+
+                                # NEW v2.1: Validate bedrock(name, anim) references
+                                for ref_name, ref_anim in bedrock_pattern.findall(str(anim)):
+                                    if ref_name != pokemon_name:
+                                        self.errors.append(
+                                            f"{pokemon_name}: ❌ Pose '{pose_name}' references "
+                                            f"bedrock({ref_name}, ...) — wrong Pokémon name!")
+                                        self.errors.append(
+                                            f"  Should be bedrock({pokemon_name}, ...) — "
+                                            f"likely a copy-paste from another poser")
+                                    elif pokemon_name in self.animation_names:
+                                        if ref_anim not in self.animation_names[pokemon_name]:
+                                            available = ', '.join(sorted(self.animation_names[pokemon_name]))
+                                            self.errors.append(
+                                                f"{pokemon_name}: ❌ Pose '{pose_name}' references animation "
+                                                f"'{ref_anim}' that doesn't exist in animation file!")
+                                            self.errors.append(f"  Available animations: {available}")
 
             return True
 
@@ -952,6 +1149,47 @@ class CobblemonPackChecker:
             # Check for poser reference
             if "poser" not in first_var:
                 self.warnings.append(f"{pokemon_name}: No 'poser' field in first variation")
+            else:
+                # NEW v2.1: Verify the poser reference points at an existing poser file
+                poser_ref = first_var["poser"]
+                expected_poser = f"cobblemon:{pokemon_name}"
+                if poser_ref != expected_poser:
+                    self.warnings.append(
+                        f"{pokemon_name}: Poser reference is '{poser_ref}', expected '{expected_poser}'")
+                ref_name = str(poser_ref).split(":", 1)[-1]
+                poser_path = (self.pack_path / "resource_pack" / "assets" / "cobblemon" /
+                              "bedrock" / "pokemon" / "posers" / f"{ref_name}.json")
+                if not poser_path.exists():
+                    self.errors.append(
+                        f"{pokemon_name}: ❌ Resolver poser '{poser_ref}' has no matching file "
+                        f"at posers/{ref_name}.json")
+
+            # NEW v2.1: Verify texture paths in ALL variations resolve to real files
+            found_texture = False
+            for i, var in enumerate(variations):
+                if not isinstance(var, dict) or "texture" not in var:
+                    continue
+                found_texture = True
+                tex_ref = str(var["texture"])
+                aspects = var.get("aspects", [])
+                var_label = f"variation #{i + 1}" + (f" (aspects: {', '.join(aspects)})" if aspects else "")
+
+                if not tex_ref.startswith("cobblemon:"):
+                    self.warnings.append(
+                        f"{pokemon_name}: Texture in {var_label} is '{tex_ref}' "
+                        f"(expected a 'cobblemon:' namespaced path)")
+                    continue
+                rel_path = tex_ref.split(":", 1)[1]
+                tex_path = self.pack_path / "resource_pack" / "assets" / "cobblemon" / rel_path
+                if not tex_path.exists():
+                    self.errors.append(
+                        f"{pokemon_name}: ❌ Resolver {var_label} points at missing texture!")
+                    self.errors.append(f"  '{tex_ref}' → {tex_path}")
+                    self.errors.append(f"  This causes invisible/missing textures in-game (check spelling & case)")
+            if not found_texture:
+                self.warnings.append(
+                    f"{pokemon_name}: No 'texture' field in any resolver variation "
+                    f"(Pokémon may render untextured)")
 
             return True
 
@@ -979,6 +1217,53 @@ class CobblemonPackChecker:
                 self.errors.append(f"{pokemon_name}: No 'spawns' array in spawn file")
                 return False
 
+            # NEW v2.1: Deep-check each spawn entry
+            spawns = data["spawns"]
+            if isinstance(spawns, list):
+                if not spawns:
+                    self.warnings.append(f"{pokemon_name}: 'spawns' array is empty (won't spawn)")
+                for i, spawn in enumerate(spawns):
+                    if not isinstance(spawn, dict):
+                        continue
+                    label = f"spawn entry #{i + 1}"
+
+                    # pokemon field should match the species
+                    spawn_pokemon = spawn.get("pokemon", "")
+                    base_pokemon = str(spawn_pokemon).split(" ")[0].lower()  # ignore aspect args
+                    if spawn_pokemon and base_pokemon != pokemon_name:
+                        self.errors.append(
+                            f"{pokemon_name}: ❌ {label} spawns '{spawn_pokemon}' — doesn't match filename!")
+                        self.errors.append(f"  Likely a copy-paste from another spawn file")
+
+                    # bucket must be valid
+                    bucket = spawn.get("bucket")
+                    if bucket is not None and bucket not in self.VALID_BUCKETS:
+                        self.errors.append(
+                            f"{pokemon_name}: {label} has invalid bucket '{bucket}'")
+                        self.errors.append(f"  Valid buckets: {', '.join(sorted(self.VALID_BUCKETS))}")
+
+                    # weight of 0 never spawns
+                    weight = spawn.get("weight")
+                    if isinstance(weight, (int, float)) and weight <= 0:
+                        self.warnings.append(
+                            f"{pokemon_name}: {label} has weight {weight} (will NEVER spawn!)")
+
+                    # level range sanity
+                    level = spawn.get("level")
+                    if isinstance(level, str) and "-" in level:
+                        try:
+                            lo, hi = level.split("-", 1)
+                            lo, hi = int(lo), int(hi)
+                            if lo > hi:
+                                self.errors.append(
+                                    f"{pokemon_name}: {label} level range '{level}' is backwards (min > max)")
+                            if hi > 100:
+                                self.warnings.append(
+                                    f"{pokemon_name}: {label} max level {hi} is over 100")
+                        except ValueError:
+                            self.warnings.append(
+                                f"{pokemon_name}: {label} level '{level}' isn't a valid range (e.g. '5-30')")
+
             return True
 
         except json.JSONDecodeError as e:
@@ -987,6 +1272,160 @@ class CobblemonPackChecker:
         except Exception as e:
             self.errors.append(f"{pokemon_name}: Error reading spawn file: {e}")
             return False
+
+    # ========================================================================
+    # NEW v2.1: Pack-level cross-checks
+    # ========================================================================
+
+    def check_evolution_targets(self):
+        """NEW v2.1: Verify every evolution result points at a species that exists"""
+        for pokemon_name, evolutions in self.species_evolutions.items():
+            for evo in evolutions:
+                if not isinstance(evo, dict):
+                    continue
+                result = str(evo.get("result", "")).split(" ")[0].lower()  # ignore aspect args
+                result = result.split(":", 1)[-1]  # strip namespace if present
+                if not result:
+                    continue
+                if result not in self.all_species:
+                    self.warnings.append(
+                        f"{pokemon_name}: Evolution target '{result}' is not in this pack")
+                    self.warnings.append(
+                        f"  If it's not a vanilla Pokémon either, the evolution will silently never fire")
+
+    def check_lang_file(self, pokemon_list: List[str]):
+        """NEW v2.1: Verify lang file has name + pokedex desc entries for every Pokémon"""
+        lang_file = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "lang" / "en_us.json"
+
+        if not lang_file.exists():
+            self.errors.append("Missing lang file: assets/cobblemon/lang/en_us.json")
+            self.errors.append("  All Pokémon will show raw translation keys in-game!")
+            return
+
+        try:
+            with open(lang_file, 'r', encoding='utf-8') as f:
+                lang_data = json.load(f)
+        except json.JSONDecodeError as e:
+            self.errors.append(f"Invalid JSON in lang file en_us.json: {e}")
+            return
+        except Exception as e:
+            self.warnings.append(f"Could not read lang file: {e}")
+            return
+
+        for pokemon_name in pokemon_list:
+            name_key = f"cobblemon.species.{pokemon_name}.name"
+            if name_key not in lang_data:
+                self.warnings.append(
+                    f"{pokemon_name}: Missing '{name_key}' in en_us.json (shows raw key in-game)")
+
+            # Check the desc keys the species file actually declares
+            for dex_key in self.species_pokedex_keys.get(pokemon_name, []):
+                if dex_key not in lang_data:
+                    self.warnings.append(
+                        f"{pokemon_name}: Pokédex key '{dex_key}' declared in species file "
+                        f"but missing from en_us.json")
+
+    def check_species_additions(self):
+        """NEW v2.1: Validate species_additions files (from the species editor)"""
+        additions_dir = self.pack_path / "behavior_pack" / "data" / "cobblemon" / "species_additions"
+        if not additions_dir.exists():
+            return  # Nothing to check
+
+        addition_files = list(additions_dir.glob("*.json"))
+        if not addition_files:
+            return
+
+        print(f"   Checking {len(addition_files)} species addition(s)...")
+
+        for add_file in addition_files:
+            label = f"species_additions/{add_file.name}"
+            try:
+                with open(add_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except json.JSONDecodeError as e:
+                self.errors.append(f"{label}: Invalid JSON: {e}")
+                continue
+            except Exception as e:
+                self.errors.append(f"{label}: Error reading file: {e}")
+                continue
+
+            # Target is required and must be namespaced
+            target = data.get("target")
+            if not target:
+                self.errors.append(f"{label}: Missing 'target' field (addition does nothing)")
+                continue
+            if ":" not in str(target):
+                self.warnings.append(
+                    f"{label}: target '{target}' has no namespace (expected e.g. 'cobblemon:{target}')")
+            target_name = str(target).split(":", 1)[-1].lower()
+
+            # If targeting a custom species, it must exist; vanilla we can't verify
+            if target_name in self.all_species:
+                self.info.append(f"✓ {label}: targets custom species '{target_name}'")
+            else:
+                self.info.append(
+                    f"✓ {label}: targets '{target_name}' (not in this pack — assuming vanilla; "
+                    f"double-check spelling)")
+
+            # Validate evolutions inside the addition
+            for i, evo in enumerate(data.get("evolutions", [])):
+                if not isinstance(evo, dict):
+                    continue
+                if "result" not in evo:
+                    self.errors.append(f"{label}: Evolution #{i + 1} missing 'result'")
+                else:
+                    result = str(evo["result"]).split(" ")[0].split(":", 1)[-1].lower()
+                    if result and result not in self.all_species:
+                        self.warnings.append(
+                            f"{label}: Evolution target '{result}' is not in this pack "
+                            f"(verify it's vanilla or exists elsewhere)")
+                if "variant" not in evo:
+                    self.errors.append(f"{label}: Evolution #{i + 1} missing 'variant'")
+
+            # Reuse the known move-replacement footgun warning
+            if "moves" in data:
+                self.warnings.append(
+                    f"{label}: 'moves' REPLACES the target's entire move list "
+                    f"({len(data['moves'])} moves) — make sure that's intended")
+
+    def check_orphan_files(self):
+        """NEW v2.1: Find posers/resolvers/models/animations/textures/spawns with no species"""
+        rp_bedrock = self.pack_path / "resource_pack" / "assets" / "cobblemon" / "bedrock" / "pokemon"
+
+        locations = [
+            ("poser", rp_bedrock / "posers", lambda p: p.stem, "*.json"),
+            ("model folder", rp_bedrock / "models", lambda p: p.name, None),
+            ("animation folder", rp_bedrock / "animations", lambda p: p.name, None),
+            ("texture folder",
+             self.pack_path / "resource_pack" / "assets" / "cobblemon" / "textures" / "pokemon",
+             lambda p: p.name, None),
+            ("spawn file",
+             self.pack_path / "behavior_pack" / "data" / "cobblemon" / "spawn_pool_world",
+             lambda p: p.stem, "*.json"),
+        ]
+
+        for kind, directory, name_fn, pattern in locations:
+            if not directory.exists():
+                continue
+            items = directory.glob(pattern) if pattern else (p for p in directory.iterdir() if p.is_dir())
+            for item in items:
+                name = name_fn(item)
+                if name not in self.all_species:
+                    self.warnings.append(
+                        f"Orphan {kind} '{name}' has no species file (leftover from a "
+                        f"renamed/deleted Pokémon?)")
+
+        # Resolvers use the 0_{name}_base.json pattern
+        resolvers_dir = rp_bedrock / "resolvers"
+        if resolvers_dir.exists():
+            import re as _re
+            resolver_pattern = _re.compile(r'^\d+_(.+)_base$')
+            for item in resolvers_dir.glob("*.json"):
+                m = resolver_pattern.match(item.stem)
+                if m and m.group(1) not in self.all_species:
+                    self.warnings.append(
+                        f"Orphan resolver '{item.name}' has no species file (leftover from a "
+                        f"renamed/deleted Pokémon?)")
 
     def print_results(self):
         """Print all errors, warnings, and info"""
