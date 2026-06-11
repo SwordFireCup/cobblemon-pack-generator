@@ -894,6 +894,62 @@ class CobblemonPackGenerator:
             else:
                 print(f"ℹ️  No evolutions to remove.")
 
+        # Edit head bone (updates BOTH species canLook and the poser file)
+        head_bone = getattr(args, 'head_bone', None)
+        if head_bone is not None:
+            no_head = head_bone.lower() == 'none'
+
+            # 1) Species: behaviour.moving.canLook
+            behaviour = data.setdefault('behaviour', {})
+            moving = behaviour.setdefault('moving', {})
+            moving['canLook'] = (not no_head) and (not getattr(args, 'no_look', False))
+
+            # 2) Poser: head field + look animation
+            poser_file = (self.resource_pack_dir / "assets" / "cobblemon" / "bedrock" /
+                          "pokemon" / "posers" / f"{pokemon_lower}.json")
+            if poser_file.exists():
+                try:
+                    with open(poser_file, 'r') as f:
+                        poser_data = json.load(f)
+
+                    if no_head:
+                        # Delete head field entirely (never set to null!)
+                        poser_data.pop('head', None)
+                        # Strip "look" from every pose's animations
+                        for pose in poser_data.get('poses', {}).values():
+                            if isinstance(pose, dict) and isinstance(pose.get('animations'), list):
+                                pose['animations'] = [a for a in pose['animations']
+                                                      if str(a).strip().lower() != 'look']
+                        changes_made.append("Head bone: REMOVED (poser 'head' deleted, "
+                                            "'look' animations stripped, canLook=false)")
+                    else:
+                        poser_data['head'] = head_bone
+                        # Ensure standing pose has "look" so the head actually tracks
+                        standing = poser_data.get('poses', {}).get('standing')
+                        if isinstance(standing, dict) and isinstance(standing.get('animations'), list):
+                            if not any(str(a).strip().lower() == 'look' for a in standing['animations']):
+                                standing['animations'].insert(0, 'look')
+                        changes_made.append(f"Head bone: set to '{head_bone}' "
+                                            f"(canLook={moving['canLook']})")
+
+                    with open(poser_file, 'w') as f:
+                        json.dump(poser_data, f, indent=2)
+                except Exception as e:
+                    print(f"⚠️  WARNING: Could not update poser file: {e}")
+                    changes_made.append(f"canLook: {moving['canLook']} (species only — poser update FAILED)")
+            else:
+                print(f"⚠️  WARNING: Poser file not found: {poser_file}")
+                print(f"   Updated species canLook only — fix the poser manually!")
+                changes_made.append(f"canLook: {moving['canLook']} (species only — no poser file found)")
+
+        # --no-look on its own: force canLook=false without touching the head bone
+        elif getattr(args, 'no_look', False):
+            behaviour = data.setdefault('behaviour', {})
+            moving = behaviour.setdefault('moving', {})
+            if moving.get('canLook') is not False:
+                moving['canLook'] = False
+                changes_made.append("canLook: false (head bone unchanged)")
+
         # Update moves if provided
         if args.moves:
             new_moves = [m.strip() for m in args.moves.split(',')]
@@ -1096,8 +1152,8 @@ Examples:
                         help='(edit mode) Remove ALL evolutions from the Pokémon')
 
     # Model customization
-    parser.add_argument('--head-bone', type=str, default='head',
-                        help='Head bone name (use "none" if model has no head)')
+    parser.add_argument('--head-bone', type=str, default=None,
+                        help='Head bone name (use "none" if model has no head; default: "head" on create)')
 
     # Other options
     parser.add_argument('--downloads', type=str, help='Custom Downloads path')
@@ -1148,7 +1204,7 @@ Examples:
         'spawn_biomes': args.spawn_biomes,
         'desc1': args.desc1,
         'desc2': args.desc2,
-        'head_bone': args.head_bone,
+        'head_bone': args.head_bone if args.head_bone is not None else 'head',
         'legendary': args.legendary,
         'evo_target': args.evo_target,
         'evo_method': args.evo_method,
